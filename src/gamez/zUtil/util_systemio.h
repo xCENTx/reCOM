@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZUTIL_SYSTEMIO_H
+#define ZUTIL_SYSTEMIO_H
 #include <iostream>
 
 #include "gamez/zSystem/zsys.h"
@@ -45,6 +46,7 @@ public:
 	static size_t Read(void* buf, int count);
 public:
 	static _FILECD* m_TOC;
+	static bool m_streamingSndActive;
 
 	_FILECD* m_toc;
 	unsigned int m_pos;
@@ -143,3 +145,4 @@ private:
 	void* m_buffer;
 	size_t m_bufsize;
 };
+#endif

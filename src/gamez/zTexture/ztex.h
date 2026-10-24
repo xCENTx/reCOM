@@ -1,7 +1,6 @@
-#pragma once
+#ifndef ZTEXTURE_H
+#define ZTEXTURE_H
 #include <vector>
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_pixels.h>
 
 #include "gamez/zSystem/zsys.h"
 
@@ -55,9 +54,12 @@ namespace zdb
 	class CTexPalette : public PALETTE_PARAMS
 	{
 	public:
-		bool Read(CSaveLoad& sload);
-		bool Read(zar::CZAR& archive);
+		CTexPalette(const char* name);
 		
+		bool Read(CSaveLoad& sload);
+		
+		static u32 m_palId;
+
 		CAssetLib* m_AssetLib;
 
 		char* m_name;
@@ -85,13 +87,13 @@ namespace zdb
 		static u32 m_endAddress;
 		static u32 m_startAddress;
 		
-		char* m_name;
 		CAssetLib* m_AssetLib;
+		char* m_name;
 		void* m_buffer;
 		CTexPalette* m_palette;
 		_word128* m_gifSelect;
 		_word128* m_vuSelect;
-		SDL_PixelFormat m_format;
+		u16 m_format;
 		u16 m_palID;
 		u16 m_htex_count;
 		u16 m_gsWords;
@@ -215,3 +217,4 @@ namespace zdb
 		static void Init();
 	};
 }
+#endif

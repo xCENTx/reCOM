@@ -1,6 +1,5 @@
-#pragma once
-#include <SDL3/SDL_video.h>
-#include <SDL3/SDL_render.h>
+#ifndef ZVIDEO_H
+#define ZVIDEO_H
 
 #include "gamez/zMath/zmath.h"
 
@@ -20,7 +19,6 @@ enum _zvid_mode
 
 void zVid_Init(_zvid_mode mode);
 void zVid_Uninit();
-void zVid_CreateWindow();
 void zVid_Open();
 void zVid_Swap(bool doSwap);
 void zVid_FrameRestore();
@@ -82,30 +80,13 @@ public:
 	s64 dmaFrameRestore;
 };
 
-class CWindow
-{
-public:
-	CWindow();
-	CWindow(CRdrFile* reader);
-	CWindow(const char* name, u32 width, u32 height);
-	
-	SDL_Window* GetWindow() const;
-	SDL_Renderer* GetRenderer() const;
-
-	f32 GetWidth() const { return m_width; }
-	f32 GetHeight() const { return m_height; }
-private:
-	char* m_name;
-	u32 m_width;
-	u32 m_height;
-
-	SDL_Window* m_window;
-	SDL_Renderer* m_renderer;
-};
-
 class CVideo
 {
 public:
 	static void Clear(u8 r, u8 g, u8 b, u8 a) { }
 	static void RestoreImage(const char* img, bool raw = false);
+	static f32 MaxFrameRate(s32 fr);
+
+	static s32 m_defaultFrameRate;
 };
+#endif

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZMATH_H
+#define ZMATH_H
 #include <cmath>
 
 #include "gamez/zSystem/zsys.h"
@@ -160,10 +161,11 @@ public:
 
 	void Normalize();
 	void Normalize(CPnt3D* other);
-	void Add(const CPnt3D* other, CPnt3D* out);
-	void Sub(const CPnt3D* other, CPnt3D* out);
+	void Add(CPnt3D* other, CPnt3D* out);
+	void Sub(CPnt3D* other, CPnt3D* out);
 	void Scale(f32 scaleFactor, CPnt3D* out);
 	void Cross(const CPnt3D* a, CPnt3D* b, bool normalize);
+	void Interp(const CPnt3D* from, f32 step, CPnt3D* to);
 };
 
 class CPnt4D : public PNT4D
@@ -230,9 +232,12 @@ public:
 
 	const float* operator[](const s32 row);
 public:
+	CMatrix();
+	CMatrix(f32 m00, f32 m01, f32 m02, f32 m03, f32 m10, f32 m11, f32 m12, f32 m13, f32 m20, f32 m21, f32 m22, f32 m23, f32 m30, f32 m31, f32 m32, f32 m33);
+
 	const float* GetTranslate() const;
 
-	void Transform(CPnt3D* point, s32 count) const;
+	void Transform(CPnt3D* point, s32 count);
 	void Multiply(const CMatrix* first, const CMatrix* second);
 
 	void SetRotation(const CPnt3D* rotation);
@@ -240,7 +245,7 @@ public:
 	void SetZero();
 
 	void ToEuler(CPnt3D* p);
-	CQuat* ToQuat(CQuat* q);
+	void ToQuat(CQuat* q);
 public:
 	f32 m_matrix[4][4];
 };
@@ -260,3 +265,4 @@ public:
 	f32 left;
 	f32 right;
 };
+#endif

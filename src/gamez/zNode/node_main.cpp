@@ -1,13 +1,23 @@
 #include <algorithm>
 
 #include "znode.h"
+#include "node_model.h"
+#include "node_universe.h"
+#include "node_assetlib.h"
+
+#include "gamez/zGrid/zgrid.h"
 
 #include "gamez/zSystem/zsys.h"
 #include "gamez/zVisual/zvis.h"
 #include "gamez/zUtil/zutil.h"
 
+extern char* UNNAMED_NODE = "UNNAMED_NODE";
+extern char* DELETED_NODE = "DELETED_NODE";
+
 namespace zdb
 {
+	static CMesh* last_mesh = NULL;
+
 	u32 numNodes = 0;
 
 	u32 CGrid::N_ATOMS = 0;
@@ -148,6 +158,247 @@ namespace zdb
 
 		return false;
 	}
+	
+	bool CNode::DeleteVisual(CVisual* visual, bool doChildren)
+	{
+		std::vector<CVisual*>::iterator it;
+
+		// Look for copies, I guess.
+		for (it = m_visual.begin(); it != m_visual.end(); ++it)
+			if (*it == visual)
+				break;
+
+		// std::remove_copy(m_visual.begin(), m_visual.end(), it, visual);
+
+		// m_visual.erase(it);
+
+		bool released = visual->Release();
+
+		if (doChildren && !released)
+		{
+			if (visual)
+				// delete visual;
+
+			m_hasVisuals = false;
+		}
+
+		m_modified = true;
+		return true;
+	}
+
+	s32 CNode::DeleteVisuals()
+	{
+		for (auto i = m_visual.begin(); i != m_visual.end(); ++i)
+		{
+			(*i)->Release();
+			delete (*i);
+		}
+
+		m_visual.clear();
+		m_hasVisuals = false;
+
+		return 0;
+	}
+
+	void CNode::ComputeFacadeMatrix(const CMatrix* matrix, CMatrix* model)
+	{
+
+	}
+
+	CNode* CNode::Copy()
+	{
+		return _Copy(NULL);
+	}
+
+	// TODO: Implement this function
+	CNode* CNode::_Copy(CNode* other)
+	{
+		if (!other)
+			other = new CNode();
+		else
+		{
+			InitNodeParams(other, this);
+
+			if (other->m_name && other->m_name != UNNAMED_NODE)
+				zfree(other->m_name);
+
+			if (!m_name)
+				m_name = UNNAMED_NODE;
+			else
+				other->m_name = zstrdup(m_name);
+
+			other->m_Opacity = m_Opacity;
+
+			if (other->m_modelname)
+			{
+				zfree(other->m_modelname);
+				other->m_modelname = NULL;
+			}
+
+			if (other->m_name)
+				m_name = zstrdup(other->m_name);
+
+			other->m_modelname = m_name;
+			other->SetModel(m_model);
+			other->m_modified = true;
+			other->m_region_mask = m_region_mask;
+		}
+
+		other->m_visual.reserve(m_visual.size());
+
+		for (u32 i = 0; i < m_visual.size(); i++)
+		{
+			CVisual* visual = m_visual[i];
+			CMesh* mesh = static_cast<CMesh*>(visual);
+			CSubMesh* submesh = static_cast<CSubMesh*>(mesh);
+
+			if (!visual->m_has_lods)
+			{
+				mesh = NULL;
+				submesh = NULL;
+			}
+
+			if (!mesh)
+			{
+				if (!submesh)
+				{
+					if (visual && !other->m_visual.Exists(visual))
+					{
+						visual->m_instance_cnt++;
+						other->m_visual.insert(other->m_visual.begin(), visual);
+
+						if (visual->m_field1)
+							other->m_hasMesh = true;
+
+						if (visual->m_has_lods)
+							other->m_hasVisuals = true;
+
+						other->SetParentHasVisuals();
+					}
+
+					last_mesh = NULL;
+				}
+				else
+				{
+					CSubMesh* lastSubmesh = new CSubMesh(last_mesh);
+
+					lastSubmesh->m_matrix_id = submesh->m_matrix_id;
+
+					if (!other->m_visual.Exists(lastSubmesh))
+					{
+						lastSubmesh->m_instance_cnt++;
+						other->m_visual.insert(other->m_visual.begin(), lastSubmesh);
+
+						if (lastSubmesh->m_field1)
+							other->m_hasMesh = true;
+
+						if (lastSubmesh->m_has_lods)
+							other->m_hasVisuals = true;
+
+						other->SetParentHasVisuals();
+					}
+				}
+			}
+			else
+			{
+				// TODO: Clone mesh and add to other visual list
+			}
+		}
+
+		// TODO: DI copying goes here
+
+		other->ReserveChildren(m_child.size());
+
+		for (u32 i = 0; i < m_child.size(); i++)
+		{
+			CNode* child = m_child[i];
+			CNode* instance = child;
+
+			if (child->m_type != static_cast<u32>(TYPE::INSTANCE))
+				instance = NULL;
+
+			if (!instance)
+				instance = child->_Copy(NULL);
+			else
+			{
+				CPnt3D position;
+				CQuat rotation;
+
+				child->m_matrix.ToQuat(&rotation);
+
+				position.x = child->m_matrix.m_matrix[3][0];
+				position.y = child->m_matrix.m_matrix[3][1];
+				position.z = child->m_matrix.m_matrix[3][2];
+
+				instance = CreateInstance(m_model, &position, &rotation);
+
+				if (instance)
+				{
+					InitNodeParams(instance, child);
+
+					if (instance->m_name && instance->m_name != UNNAMED_NODE)
+						zfree(instance->m_name);
+
+					if (!child->m_name)
+						m_name = UNNAMED_NODE;
+					else
+						instance->m_name = zstrdup(m_name);
+
+					instance->m_Opacity = m_Opacity;
+
+					if (instance->m_modelname)
+					{
+						zfree(instance->m_modelname);
+						instance->m_modelname = NULL;
+					}
+
+					if (instance->m_name)
+						m_name = zstrdup(instance->m_name);
+
+					instance->m_modelname = m_name;
+					instance->SetModel(m_model);
+					instance->m_modified = true;
+					instance->m_region_mask = m_region_mask;
+
+				}
+			}
+
+			if (instance)
+				other->AddChild(instance);
+		}
+
+		return other;
+	}
+
+	bool CNode::Delete()
+	{
+		if (m_type == static_cast<u32>(TYPE::MULTI_PARENT))
+		{
+			if (m_child.size() != 0)
+			{
+				CNode* child = *m_child.data();
+				RemoveFromParent();
+
+				if (m_parent)
+					m_parent->AddChild(child);
+			}
+		}
+		else if (m_type == static_cast<u32>(TYPE::INSTANCE))
+		{
+			// m_model->m_list.remove_if(this);
+
+			if (m_model->m_parent == this)
+				m_model->m_parent = NULL;
+
+			RemoveFromParent();
+		}
+		
+		// Very bad. Only putting this here because of 
+		// the decompilation output.
+		delete this;
+
+		return true;
+	}
 
 	void CNode::AddChild(CNode* node)
 	{
@@ -155,7 +406,7 @@ namespace zdb
 		if (node && parent != this)
 		{
 			CNode* child = node;
-			if (m_type != (u32)TYPE::NODE_TYPE_UNK3)
+			if (m_type != (u32)TYPE::CHILD)
 			{
 				if (parent)
 				{
@@ -181,7 +432,7 @@ namespace zdb
 
 		if (m_child.Exists(child))
 		{
-			if (m_type == (u32)TYPE::NODE_TYPE_UNK3)
+			if (m_type == (u32)TYPE::CHILD)
 			{
 				m_child.Remove(child);
 				count = -1;
@@ -211,80 +462,61 @@ namespace zdb
 
 	CNode* CNode::FindChild(CNode* child, bool nested)
 	{
-		if (child)
-		{
+		if (!child)
 			return NULL;
-		}
-		else
-		{
-			for (auto it = m_child.begin(); it != m_child.end(); it++)
-			{
-				if (*it == child)
-				{
-					return *it;
-				}
-			}
 
-			if (nested)
-			{
-				for (auto it = m_child.begin(); it != m_child.end(); it++)
-				{
-					(*it)->FindChild(child, nested);
-				}
-			}
+		for (auto i = m_child.begin(); i != m_child.end(); ++i)
+		{
+			if (*i == child)
+				return *i;
+		}
+
+		if (nested)
+		{
+			for (auto i = m_child.begin(); i != m_child.end(); ++i)
+				return (*i)->FindChild(child, nested);
 		}
 	}
 
 	CNode* CNode::FindChild(const char* name, bool nested)
 	{
-		if (name == 0)
-		{
+		if (!name)
 			return NULL;
-		}
-		else
-		{
-			zdb::CNode* child = NULL;
-			size_t length = strlen(name);
 
-			for (auto it = m_child.begin(); it != m_child.end(); it++)
+		zdb::CNode* child = NULL;
+		size_t length = strlen(name);
+
+		for (auto i = m_child.begin(); i != m_child.end(); ++i)
+		{
+			child = *i;
+
+			size_t childStringLength = strlen(child->m_name);
+
+			if (length == childStringLength && strcmp(child->m_name, name) == 0)
+				return *i;
+		}
+
+		if (nested)
+		{
+			for (auto i = m_child.begin(); i != m_child.end(); i++)
 			{
-				child = *it;
+				child = *i;
 				size_t childStringLength = strlen(child->m_name);
 
 				if (length == childStringLength && strcmp(child->m_name, name) == 0)
-				{
-					child = *it;
-				}
-			}
-
-			if (child && nested)
-			{
-				for (auto it = m_child.begin(); it != m_child.end(); it++)
-				{
-					child = *it;
-					size_t childStringLength = strlen(child->m_name);
-
-					if (length == childStringLength && strcmp(child->m_name, name) == 0)
-					{
-						child = *it;
-					}
-				}
+					return child->FindChild(name, nested);
 			}
 		}
+
+		return NULL;
 	}
 
 	void CNode::DeleteChildren()
 	{
-		while (!m_child.empty())
+		for (auto i = m_child.begin(); i != m_child.end(); ++i)
 		{
-			CNode* current = m_child.front();
-
-			s32 count = DeleteChild(current);
-
-			if (count == 0 && current != NULL)
-			{
-				// current->~CNode();
-			}
+			DeleteChild(*i);
+			delete* i;
 		}
 	}
 
@@ -305,20 +537,63 @@ namespace zdb
 
 	void CNode::SetParentHasVisuals()
 	{
-		m_modified = true;
+		m_hasVisuals = true;
 
 		if (m_parent && !m_parent->m_modified)
-		{
 			m_parent->SetParentHasVisuals();
-		}
 
-		CModel* vismdl = dynamic_cast<CModel*>(this);
+		CModel* model = dynamic_cast<CModel*>(this);
 
-		if (vismdl)
+		if (!model)
+			return;
+
+		for (auto i = model->m_list.begin(); i != model->m_list.end(); ++i)
 		{
-			// TODO:
-			// Use CRefList for iteration on visuals
+			CAssetLib* assetlib = *i;
+
+			for (auto j = assetlib->m_models.begin(); j != assetlib->m_models.end(); ++j)
+			{
+				CNode* node = *j;
+
+				if (node->m_hasVisuals)
+					node->SetParentHasVisuals();
+			}
 		}
+	}
+
+	void CNode::SetDynamicLight(bool self_light, bool apply_to_children)
+	{
+		m_light_dynamic = self_light;
+
+		if (apply_to_children)
+		{
+			auto child_iterator = m_child.begin();
+			while (child_iterator != m_child.end())
+			{
+				CNode* child = *child_iterator;
+
+				child->m_light_dynamic = m_light_dynamic;
+				child->SetDynamicLight(self_light, apply_to_children);
+
+				++child_iterator;
+			}
+		}
+	}
+
+	bool CNode::InheritRegionMasks(u32 pmask, u32 cmask)
+	{
+		if (m_type == (u32)TYPE::CELL)
+			return false;
+
+		u32 parent = cmask | m_region_mask;
+		u32 child = pmask | 1 << m_region_shift;
+
+		m_region_mask = m_type == (u32)TYPE::LIGHT ? parent : child;
+
+		for (u32 i = 0; i < m_child.size(); i++)
+			m_child[i]->InheritRegionMasks(parent, child);
+
+		return true;
 	}
 
 	f32 CNode::GetRadius() const
@@ -399,9 +674,42 @@ namespace zdb
 		return m_active;
 	}
 
-	void CNode::SetModel(CModel* model)
+	bool CNode::SetModel(CModel* model)
 	{
+		if (m_type != (u32)TYPE::CHILD || m_type != (u32)TYPE::INSTANCE)
+		{
+			return false;
+		}
 
+		if (model)
+			DeleteChildren();
+
+		AddChild(model);
+
+		char* name;
+		m_model = model;
+
+		if (!model)
+			name = NULL;
+		else
+			name = model->m_name;
+
+		SetModelname(name);
+		return true;
+	}
+
+	void CNode::SetModelname(const char* name)
+	{
+		if (m_modelname)
+		{
+			zfree(m_modelname);
+			m_modelname = NULL;
+		}
+
+		if (!name)
+			return;
+
+		m_modelname = zstrdup(name);
 	}
 
 	CBBox* CNode::GetBBox()
@@ -461,9 +769,38 @@ namespace zdb
 		m_AtomAlloc = 0;
 	}
 
+	bool CNode::UpdateGrid()
+	{
+		if (!m_parent)
+			return false;
+
+		if (m_type != (u32)TYPE::GRID)
+			return false;
+
+		((CGrid*)m_parent)->Update(this);
+		return true;
+	}
+
+	void CNode::ShrinkAtomBasePtrs()
+	{
+		if (m_AtomCnt > m_AtomAlloc)
+			return;
+
+		CGridAtom** atom = (CGridAtom**)zmalloc(m_AtomCnt << 2);
+		memcpy(atom, m_Atom, m_AtomCnt << 2);
+		zfree(m_Atom);
+		m_Atom = atom;
+		m_AtomAlloc = m_AtomCnt;
+	}
+
+	void CNode::SetAtomCnt(u16 count)
+	{
+		m_AtomCnt = count;
+	}
+
 	CMatrix& CNode::BuildMTW(CMatrix& mat)
 	{
-		if (m_type == (u32)TYPE::NODE_TYPE_UNK6)
+		if (m_type == (u32)TYPE::GRID)
 		{
 			// set identity matrix
 		}
@@ -514,6 +851,38 @@ namespace zdb
 		if (m_nodeEx)
 		{
 			m_nodeEx->OnMove(this);
+		}
+	}
+
+	void CNode::TransformToWorld(const CPnt3D& point)
+	{
+		// TODO:
+		// Implement this function
+	}
+
+	void CNode::AllocateAtomBasePtrs(s32 x, s32 y)
+	{
+		u16 allocCnt = 0;
+
+		if (m_mtx_is_identity)
+		{
+			if (m_clutter)
+				allocCnt = (x + 1) * (y + 1);
+			else
+				allocCnt = (x * y);
+		}
+		else
+			allocCnt = (x * y);
+
+		if (!m_Atom)
+		{
+			m_AtomAlloc = allocCnt;
+			m_Atom = static_cast<CGridAtom**>(zmalloc(m_AtomAlloc << 2));
+		}
+		else if (m_AtomAlloc < allocCnt)
+		{
+			m_AtomAlloc = allocCnt;
+			m_Atom = static_cast<CGridAtom**>(zrealloc(m_Atom, allocCnt << 2));
 		}
 	}
 
@@ -597,39 +966,4 @@ namespace zdb
 
 		return it != last;
 	}
-
-	CModel* CModelVector::GetModel(const char* name)
-	{
-		CModel* model = NULL;
-		
-		if (name == NULL)
-		{
-			model = NULL;
-		}
-		else
-		{
-			for (auto it = begin(); it != end(); it++)
-			{
-				if (strcmp(name, (*it)->m_name) == 0)
-				{
-					model = *it;
-					break;
-				}
-			}
-		}
-
-		return model;
-	}
 }
-
-//CNodeAction::CNodeAction(zdb::CNode* node, CZAnim* animToPlay, CValve* actionValve, zdb::CTexHandle* handle)
-//{
-//	this->animations = NULL;
-//	this->actionAnimation = NULL;
-//	this->node = node;
-//	this->actionValve = actionValve;
-//	this->typeFlag = 6;
-//	this->iconBitmapHandle = handle;
-//	this->animVector.insert(animVector.begin(), animToPlay);
-//	this->actionList = 0;
-//}

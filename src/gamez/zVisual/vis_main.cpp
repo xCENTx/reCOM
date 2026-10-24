@@ -1,13 +1,32 @@
-#include <GL/glew.h>
-
 #include "zvis.h"
 
 #include "gamez/zArchive/zar.h"
+#include "gamez/zAssetLib/assetlib_vector.h"
+#include "gamez/zCamera/zcam.h"
 #include "gamez/zNode/znode.h"
+#include "gamez/zNode/node_assetlib.h"
+#include "gamez/zNode/node_model.h"
+#include "gamez/zNode/node_world.h"
+#include "gamez/zMath/zmath_vu.h"
 #include "gamez/zRender/zrender.h"
-#include "gamez/zShader/zshader.h"
 
 s32 node_index = 0;
+zdb::CVisData* _vdataTex = NULL;
+std::deque<u32> zdb::CVisual::m_stack_vid;
+CMatrix zdb::CVisual::m_modelToWorld;
+CMatrix zdb::CVisual::m_WorldToModel;
+bool zdb::CVisual::m_applyShadow = true;
+bool zdb::CVisual::m_applyDetailTexture = false;
+bool zdb::CVisual::m_applyLocalLights = false;
+bool zdb::CVisual::m_fogEnable = false;
+bool zdb::CVisual::m_renderMap = false;
+bool zdb::CVisual::m_landmarkFlag = false;
+bool zdb::CVisual::m_lightingEnable = true;
+f32 zdb::CVisual::m_rangeSqdToCamera = 1.0f;
+_word128* zdb::CVisual::m_dmaChain = NULL;
+u32 zdb::CVisual::m_dmaQwc = 0;
+s32 zdb::CVisual::m_fovStatus = 0;
+f32 zdb::CVisual::m_GlobalLightScale = 1.0f;
 
 void hookupMesh(zar::CZAR* archive, zdb::CModel* model)
 {
@@ -18,9 +37,7 @@ void hookupMesh(zar::CZAR* archive, zdb::CModel* model)
 	zdb::CMesh* mesh = model->GetMesh();
 	sprintf_s(buf, 192, "MESH_%s", model->m_name);
 
-	zar::CKey* meshkey = archive->OpenKey(buf);
-
-	if (meshkey)
+	if (auto meshkey = archive->OpenKey(buf))
 	{
 		if (archive->FetchLIP(meshkey, reinterpret_cast<void**>(meshword)))
 		{
@@ -38,130 +55,158 @@ void hookupMesh(zar::CZAR* archive, zdb::CModel* model)
 	}
 }
 
-void hookupVisuals(zar::CZAR* archive, zar::CKey* key, zdb::CNode* node, zdb::CModel* model, zdb::CVisBase* vis)
+void hookupVisuals(zar::CZAR* archive, zar::CKey* key, zdb::CNode* node, zdb::CModel* model, zdb::CVisBase* vbase)
 {
+	std::vector<zdb::CVisual*> visualsToRemove;
+
 	char node_name[1024];
 	char node_light_name[1024];
-	
-	if (!node)
-	{
-		return;
-	}
 
-	if (node->m_hasMesh)
-	{
-		node->GetSubMesh();
-	}
-
-	if (!node->m_visual.empty())
-	{
-		node->m_hasVisuals = true;
-		node_index++;
-	}
-
+	u32 bufidx = 0;
 	u32 vis_id = 0;
 	u32 child_vis_id = 0;
+	u32 node_ofs = 0;
 	
-	auto node_iterator = model->m_child.begin();
-	while (node_iterator != model->m_child.end())
+	if (!node)
+		return;
+
+	if (node->m_hasMesh)
+		node->GetSubMesh();
+
+	if (node->m_visual.size() != 0 || node->m_hasVisuals)
+		node_index++;
+
+	for (auto i = model->m_list.begin(); i != model->m_list.end(); i++)
 	{
-		zdb::CNode* node = *node_iterator;
-		zdb::CNode* child = node->FindChild(node->m_name, true);
+		zdb::CNode* n = static_cast<zdb::CModel*>((*i)->m_model_buffer);
+		zdb::CNode* child = n->FindChild(node->m_name, true);
 
 		if (!child)
-		{
-			child = node;
-		}
+			child = n;
 
 		child->m_vid = vis_id;
 
-		auto vis_iterator = child->m_visual.begin();
-		while (vis_iterator != child->m_visual.end())
+		for (auto j = node->m_visual.begin(); j != node->m_visual.end(); j++)
 		{
-			zdb::CVisual* visual = *vis_iterator;
-
-			// TODO: Figure out what the visual vectors are storing
-			// visual->some_vector_1.insert(visual->some_vector_1.end(), lod);
-			// visual->some_vector_2.insert(visual->some_vector_2.end(), something);
+			zdb::CVisual* visual = *j;
 
 			sprintf(node_name, "N%03d_I%03d_V%02d", node_index, vis_id, child_vis_id);
 			strcpy(node_light_name, node_name);
-			strcat(node_light_name, "L");
+			strcat(node_light_name, "_L");
 
-			u32 local24 = 0;
-			bool fetched = false;
+			bool found = archive->Fetch(node_light_name, &node_ofs, sizeof(u32));
 
-			fetched = archive->Fetch(node_light_name, &local24, sizeof(u32));
-			
-			if (!fetched)
-			{
-				fetched = archive->Fetch(node_name, &local24, sizeof(u32));
-			}
+			if (!found)
+				found = archive->Fetch(node_name, &node_ofs, sizeof(u32));
 			else
-			{
 				child->SetDynamicLight(true, false);
-			}
 
-			if (!fetched)
+			if (found)
 			{
-				// TODO: More visual vector stuff needs to be figured out -
-				// And implemented!
+				vbase->m_node_ofs = node_ofs;
+				visual->SetBuffer(&vbase->m_data_buffer[vbase->m_node_ofs], bufidx, vbase);
 			}
 			else
-			{
-				// TODO: Add quadword parameters to this function -
-				// to target a MultiGen vertex buffer
-				// visual->SetBuffer();
-			}
-			
-			++vis_iterator;
+				visualsToRemove.insert(visualsToRemove.begin(), visual);
 		}
-		
-		++node_iterator;
+
+		bufidx++;
+	}
+
+	if (model->m_list.size() == 0 || model->m_bForceExport || model->GetMesh())
+	{
+		for (u32 i = 0; i < node->m_visual.size(); i++)
+		{
+			zdb::CVisual* visual = node->m_visual[i];
+
+			sprintf(node_name, "N%03d_I%03d_V%02d", node_index, 0, i);
+			strcpy(node_light_name, node_name);
+			strcat(node_light_name, "_L");
+
+			bool found = archive->Fetch(node_light_name, &node_ofs, sizeof(u32));
+
+			if (!found)
+				found = archive->Fetch(node_name, &node_ofs, sizeof(u32));
+			else
+				node->SetDynamicLight(true, false);
+
+			if (!found)
+			{
+				sprintf(node_name, "N%03d_%03d", node_index, i);
+				strcpy(node_light_name, node_name);
+				strcat(node_light_name, "_L");
+
+				if (!found)
+					found = archive->Fetch(node_name, &node_ofs, sizeof(u32));
+				else
+					node->SetDynamicLight(true, false);
+
+				if (found)
+				{
+					vbase->m_node_ofs = node_ofs;
+					visual->m_chainPtr = (_word128*)((u8*)vbase->m_data_buffer + vbase->m_node_ofs);
+					visual->SetBuffer(visual->m_chainPtr, 0, vbase);
+				}
+				else
+				{
+					visualsToRemove.insert(visualsToRemove.begin(), visual);
+				}
+			}
+		}
+	}
+
+	for (auto i = visualsToRemove.begin(); i != visualsToRemove.end(); ++i)
+	{
+		zdb::CVisual* visual = *i;
+		node->DeleteVisual(visual, true);
+	}
+
+	for (auto i = node->m_child.begin(); i != node->m_child.end(); i++)
+	{
+		zdb::CNode* parent = *i;
+		zdb::CNode* child = NULL;
+
+		if (parent->m_type == (u32)zdb::CNode::TYPE::INSTANCE)
+			child = parent;
+
+		if (!child)
+			hookupVisuals(archive, key, parent, model, vbase);
 	}
 }
 
 void hookupVisuals(zar::CZAR* archive, zdb::CModel* model)
 {
 	zdb::CVisBase* vis = NULL;
-	zdb::CMesh* mesh = model->GetMesh();
 
-	if (!mesh)
+	if (model->GetMesh())
 	{
-		node_index = -1;
-
-		zar::CKey* modelkey = archive->OpenKey(model->m_name);
-
-		if (modelkey)
-		{
-			vis = new zdb::CVisBase(modelkey->GetSize());
-			
-			if (!archive->FetchLIP(modelkey, reinterpret_cast<void**>(vis)))
-			{
-				if (modelkey && !vis->m_active)
-				{
-					if (vis->m_data_buffer)
-					{
-						zfree(vis->m_data_buffer);
-					}
-
-					vis->m_data_buffer = NULL;
-				}
-
-				zdb::CVisBase::m_instance_count--;
-				delete vis;
-			}
-			else
-			{
-				hookupVisuals(archive, modelkey, model, model, vis);
-			}
-
-			archive->CloseKey(modelkey);
-		}
+		// hookupMesh(archive, model);
+		return;
 	}
-	else
+
+	node_index = -1;
+
+	if (zar::CKey* key = archive->OpenKey(model->m_name))
 	{
-		hookupMesh(archive, model);
+		vis = new zdb::CVisBase(key->GetSize());
+
+		if (!archive->FetchLIP(key, reinterpret_cast<void**>(vis)))
+		{
+			if (!vis->m_active)
+			{
+				if (vis->m_data_buffer)
+					zfree(vis->m_data_buffer);
+
+				vis->m_data_buffer = NULL;
+			}
+
+			zdb::CVisBase::m_instance_count--;
+			delete vis;
+		}
+		else 
+			hookupVisuals(archive, key, model, model, vis);
+
+		archive->CloseKey(key);
 	}
 }
 
@@ -170,11 +215,11 @@ namespace zdb
 	u32 CVisBase::m_instance_count = 0;
 
 	CPnt4D CVisual::m_basefog_color = CPnt4D::zero;
-	
+
 	CCamera* CVisual::m_camera = NULL;
 
 	f32 CVisual::m_adjustBilinearRange = 0.0f;
-	
+
 	CVisBase::CVisBase(size_t size)
 	{
 		m_data_buffer = NULL;
@@ -183,59 +228,75 @@ namespace zdb
 		m_instance_count++;
 		m_active = true;
 	}
-	
+
+	void CVisData::SetBilinear(_word128* qwc, bool bilinear)
+	{
+		while (m_nextGif->u8[2] != 8)
+		{
+			m_nextGif++;
+		}
+	}
+
+	CVisual::CVisual()
+	{
+		m_lodIndex = 0;
+		m_chainPtr = NULL;
+	}
+
 	CVisual* CVisual::Create(zar::CZAR& archive)
 	{
 		CVisual* visual = NULL;
 		u32 vtype = 0;
+
 		archive.Fetch("vtype", &vtype);
 
-		if (vtype == 2)
+		switch (vtype)
 		{
+		case 2:
 			visual = new CSubMesh();
-		}
-		else if (vtype == 1)
-		{
+		case 1:
 			visual = new CMesh();
-		}
-		else if (vtype == 0 || vtype == -1)
-		{
+		case 0:
+		case -1:
 			visual = new CVisual();
 		}
 
-		if (visual != NULL)
-		{
+		if (visual)
 			visual->Read(archive);
-		}
 
 		return visual;
 	}
 
+	void CVisual::LandmarkEnable(bool enable)
+	{
+		m_landmarkFlag = enable;
+		m_lightingEnable = !enable;
+	}
+
 	bool CVisual::Read(zar::CZAR& archive)
 	{
+		u32 detail_size = 0;
+
 		archive.Fetch("vparams", this, sizeof(tag_VIS_PARAMS));
 
 		if (m_detail_buff == NULL)
-		{
 			zfree(m_detail_buff);
-		}
 
 		m_detail_buff = NULL;
 		m_detail_cnt = 0;
 
 		archive.Fetch("detail_cnt", &m_detail_cnt);
-		
-		if (m_detail_cnt != 0)
+
+		if (!m_detail_cnt)
+			return false;
+
+		archive.Fetch("detail_size", &detail_size);
+		m_detail_buff = static_cast<zdb::CVisual*>(zmalloc(detail_size));
+		archive.Fetch("detail_buff", m_detail_buff, detail_size);
+
+		for (u32 i = 0; i < m_detail_cnt; i++)
 		{
-			u32 detail_size = 0;
-			archive.Fetch("detail_size", &detail_size);
-			m_detail_buff = zmalloc(detail_size);
-			archive.Fetch("detail_buff", m_detail_buff, detail_size);
 
-			for (s32 i = 0; i < m_detail_cnt; i++)
-			{
-
-			}
 		}
 
 		return true;
@@ -243,68 +304,139 @@ namespace zdb
 
 	bool CVisual::DrawLOD(zdb::CLOD_band* lod, f32 range, f32* distance)
 	{
-		bool inrange = false;
+		if (lod->m_minRangeNearSq < range || lod->m_maxRangeFarSq > range)
+			return false;
 
-		if (lod->m_minRangeNearSq < range && range < lod->m_maxRangeFarSq)
-		{
-			if (lod->m_minFade)
-			{
-				inrange = true;
-			}
-			else if (range < lod->m_minRangeFarSq || (inrange = true, lod->m_maxRangeFarSq < range))
-			{
-				if (lod->m_minFade || lod->m_minRangeNearSq < range)
-				{
-					inrange = true;
-					if (lod->m_maxFade)
-					{
-						if (lod->m_maxRangeNearSq <= range)
-						{
-							inrange = true;
-							*distance = *distance * lod->m_minInvDeltaRangeSq * (range - lod->m_minRangeNearSq);
-						}
-					}
-				}
-			}
-		}
+		if (!lod->m_minFade)
+			return false;
 
-		return inrange;
+		if (lod->m_minRangeFarSq < range || lod->m_maxRangeFarSq > range)
+			return false;
+
+		*distance *= lod->m_minInvDeltaRangeSq * (range - lod->m_minRangeNearSq);
+		return true;
 	}
 
-	void CVisual::SetBuffer(_word128* wvis, u32 bufferidx, CVisBase* visdata)
+	void CVisual::SetBuffer(_word128* chain, u32 idx, CVisBase* vbase)
 	{
-		visdata->m_buffer_count++;
-		void* vis_buffer = visdata->m_data_buffer;
-		m_dmaBuf->u128 = wvis->u128;
+		vbase->m_buffer_count++;
+		_word128* buffer = vbase->m_data_buffer;
+		m_chainPtr[idx] = *chain;
+		_word128* packet = &m_chainPtr[idx];
 
-		u32 type = m_dmaBuf->u32[bufferidx];
+		// Check a flag? Maybe if the chain has its buffer set?
+		if (packet->u8[2] != 0)
+			return;
 
-		if (type == 0)
+		// Store pointer to visual data
+		packet->u32[2] = reinterpret_cast<u32>(&vbase);
+
+		// Number of quadwords to loop over
+		u8 qwc = packet->u8[0];
+
+		for (u32 i = 1; i < qwc + 1; i++)
 		{
-			
+			_word128& chainPkt = m_chainPtr[i];
+			u8 type = chainPkt.u8[2];
+
+			u32 pktOffset = chainPkt.u32[1];
+			u32 address = reinterpret_cast<u32>(&*buffer);
+
+			switch (type)
+			{
+			case 1:
+			case 2:
+			case 4:
+			case 7:
+				chainPkt.u32[1] = address + pktOffset;
+				break;
+			case 3:
+				break;
+			case 5:
+				break;
+			case 6:
+				CTexture* texture = ResolveTextureName(&*buffer, pktOffset);
+
+				// TODO: do some DMA ref BS down here
+				if (texture)
+				{
+					
+				}
+				break;
+			}
 		}
 	}
 	
-	void CVisual::Render()
+	bool CVisual::GetChainData()
 	{
-		if (m_renderState != 0)
+		if (!m_chainPtr)
+			return false;
+
+		u32 stackidx = m_stack_vid.size() - 1;
+		_word128* tag = &m_chainPtr[m_stack_vid[stackidx % m_stack_vid.size()]];
+		m_dmaChain = &tag[1];
+		m_dmaQwc = *tag[0].u8;
+
+		return true;
+	}
+
+	void CVisual::NodeSetup(CNode* node, CNode* other, CMatrix* matrix, s32 status)
+	{
+		m_modelToWorld = *matrix;
+		Vu0MatrixInverseWithUniformScale(&m_WorldToModel, matrix);
+		m_fovStatus = status;
+
+		if (m_renderMap && node->m_light || other->m_light)
 		{
-			VuUpdate(1.0f);
+			m_lightingEnable = true;
+
+			if (node->m_customGlobalLight < 0)
+				m_GlobalLightScale = 1.0f;
+			else
+				m_GlobalLightScale = node->m_customGlobalLight * 0.007874016f;
+
+			m_applyLocalLights = other->m_light_dynamic;
+		}
+		else
+		{
+			m_lightingEnable = false;
+			m_applyLocalLights = false;
 		}
 	}
 
-	void CVisual::VuUpdate(f32 opacity)
+	void CVisual::Render(CMatrix* transform)
 	{
-		glUseProgram(m_shader->m_ID);
-		glBindVertexArray(m_vao);
-		glDrawArrays(GL_TRIANGLES, 0, 3);
+		// if (m_renderState != 0)
+			VuUpdate(transform, 1.0f);
 	}
 
-	CTexture* CVisual::ResolveTextureName(_word128* wtexture, _word128* wname)
+	void CVisual::VuUpdate(CMatrix* transform, f32 opacity)
+	{
+		
+	}
+
+	CTexture* CVisual::ResolveTextureName(_word128* packet, s32 offset)
+	{
+		if (CTexHandle* handle = CWorld::GetTexHandle(reinterpret_cast<char*>(packet->u8 + offset)))
+		{
+			m_dyntexList.Add(handle, true);
+
+			if (handle->m_texture->m_palette)
+				m_dyntexList.Add(handle->m_texture->m_palette, true);
+
+			return handle->m_texture;
+		}
+		else
+			return CWorld::GetTexHandle("null_xmas.bmp")->m_texture;
+
+		return NULL;
+	}
+
+	CTexture* CVisual::ResolveTextureName(_word128* packet, _word128* offset)
 	{
 		CTexture* texture = NULL;
 
-		CTexHandle* handle = CWorld::GetTexHandle((char*)(wtexture->u8 + wname->u32[1]));
+		CTexHandle* handle = CWorld::GetTexHandle((char*)(packet->u8 + offset->u32[1]));
 
 		if (!handle)
 		{
@@ -327,11 +459,11 @@ namespace zdb
 			f32 r = texture->m_dmaRefVu.f32[1];
 			f32 g = texture->m_dmaRefVu.f32[2];
 			f32 b = texture->m_dmaRefVu.f32[3];
-			wname->u128 = texture->m_dmaRefVu.u128;
-			wname->f32[1] = r;
-			wname->f32[2] = g;
-			wname->f32[3] = b;
-			wname->u8[2] = 5;
+			offset->u128 = texture->m_dmaRefVu.u128;
+			offset->f32[1] = r;
+			offset->f32[2] = g;
+			offset->f32[3] = b;
+			offset->u8[2] = 5;
 		}
 
 		return texture;
@@ -348,9 +480,7 @@ namespace zdb
 		for (auto it = begin(); it != end(); it++)
 		{
 			if (*it == visual)
-			{
 				return true;
-			}
 		}
 
 		return false;
@@ -358,6 +488,6 @@ namespace zdb
 
 	void CVisData::NextVertex(u32 stride)
 	{
-		m_vertex_start 
+		
 	}
 }

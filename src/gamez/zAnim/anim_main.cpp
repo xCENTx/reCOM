@@ -1,7 +1,124 @@
 #include "zanim.h"
 
+#include "posix/strcasecmp.h"
+
 CZAnimMain ZAnim;
 bool CZAnimMain::m_LoadFromZAR = false;
+
+static f32 _x;
+
+char* _local_wildcard_str = NULL;
+char* _local_wildcard_ptr = NULL;
+char* _input_str_ptr = NULL;
+u32 _digit_count = 0;
+
+void CZAnimMain::Open()
+{
+	if (m_IsOpen)
+	{
+		Unload();
+		Close();
+	}
+
+	m_version = 0x1e;
+	m_gravity = -9.8f;
+	_x = 0.0f;
+	m_Lod = 2;
+	m_search_external_nodes = false;
+	m_unused = 0;
+	m_animset_count = 0;
+	m_animset_list = NULL;
+	m_cmdset_count = 0;
+	m_cmdset_list = NULL;
+	m_UserActionAnimIndex = 0;
+	m_block_activation_callback = false;
+
+	for (u32 i = 0; i < 41; i++)
+	{
+		m_inv_exp[i] = 1.0f - expf(_x) / (expf(10.0f) - 1.0f);
+		_x += 0.25f;
+		m_exp[i] = expf(_x) / (expf(10.0f) - 1.0f);
+	}
+
+	InitCommands();
+	NewAnimSet(2);
+
+	m_animset_list->m_IsAvailable = true;
+	m_animset_list[1].m_IsAvailable = true;
+	m_animset_list[2].m_IsAvailable = true;
+
+	m_CurrentFrame = 0;
+	m_RunningAnimCount = 0;
+	m_IsOpen = true;
+}
+
+bool CZAnimMain::Close()
+{
+	bool unloaded = Unload();
+
+	if (_local_wildcard_str)
+	{
+		zfree(_local_wildcard_str);
+		_local_wildcard_str = NULL;
+	}
+
+	_input_str_ptr = NULL;
+	_digit_count = 0;
+
+	if (m_NetworkPacket)
+	{
+		zfree(m_NetworkPacket);
+		m_NetworkPacket = NULL;
+	}
+
+	m_NetworkPacketMaxSize = 0;
+	m_IsOpen = false;
+	m_IsStarted = false;
+	
+	return unloaded;
+}
+
+bool CZAnimMain::Unload()
+{
+	// CZAnimNameTable::Unload();
+
+	if (m_animset_list)
+	{
+		for (u32 i = 0; i < m_animset_count; i++)
+		{
+			// CZAnimSet::Unload();
+		}
+
+		zfree(m_animset_list);
+		m_animset_list = NULL;
+	}
+
+	m_animset_count = 0;
+	m_CurAnimSet = NULL;
+
+	if (m_cmdset_list)
+	{
+		for (u32 i = 0; i < m_cmdset_count; i++)
+		{
+			// UnloadCmdSet(i);
+		}
+
+		zfree(m_cmdset_list);
+		m_cmdset_list = NULL;
+	}
+
+	m_cmdset_count = 0;
+	m_CurAnim = NULL;
+	m_CurSeq = NULL;
+
+	return true;
+}
+
+bool CZAnimMain::CmdValid() const
+{
+	_zsequence* sequence = m_CurSeq;
+	return *sequence->cmd_pc < sequence->name_index + sequence->seq_data_size;
+}
 
 void CZAnimMain::CmdNext()
 {
@@ -19,6 +136,44 @@ void CZAnimMain::CmdSet(s32 program_counter)
 {
 	m_CurSeq->cmd_pc = (s8*)m_CurSeq->loop_counter + program_counter;
 	m_CurSeq->cmd_state = 2;
+}
+
+bool CZAnimMain::NewAnimSet(u32 index)
+{
+	while (m_animset_count <= index)
+	{
+		m_animset_list = static_cast<CZAnimSet*>(zrealloc(m_animset_list, m_animset_count + 1 * sizeof(CZAnimSet)));
+		memset(&m_animset_list[m_animset_count], 0, sizeof(CZAnimSet));
+		m_animset_list[m_animset_count].Init();
+		m_animset_list[m_animset_count].Name("None");
+		m_animset_count++;
+	}
+
+	return true;
+}
+
+u32 CZAnimMain::GetCmd(u32 index, char* name, bool alloc)
+{
+	for (u32 i = 0; i < m_cmdset_list[index].count; i++)
+	{
+		if (alloc)
+		{
+			zanim_cmd* command = static_cast<zanim_cmd*>(zrealloc(m_cmdset_list[index].cmd_list, m_cmdset_list[index].count + 1));
+			m_cmdset_list[index].cmd_list = command;
+			zanim_cmd* buf = (zanim_cmd*)m_cmdset_list[index].cmd_list->name + m_cmdset_list[index].count * 6;
+			memset(buf, 0, sizeof(zanim_cmd));
+			buf->name = zstrdup(name);
+			buf->cmd_val.index.set = index;
+			buf->cmd_val.index.cmd = m_cmdset_list[index].count;
+			m_cmdset_list[index].count++;
+		}
+		else
+		{
+
+		}
+	}
+
+	return 0;
 }
 
 _zanim_cmd_set* CZAnimMain::GetCmdEntry(char* name, bool param_2)
@@ -52,6 +207,58 @@ _zanim_cmd_set* CZAnimMain::GetCmdSet(char* name, bool param_2)
 			}
 		}
 	}
+}
+
+u32 CZAnimMain::GetAnimSetIndex(const char* animName, bool searchList)
+{
+	for (u32 i = 0; i < m_animset_count; i++)
+	{
+		if (!animName)
+		{
+			if (!m_animset_list[i].m_name)
+				return i;
+
+			if (!strcasecmp(m_animset_list[i].m_name, "None"))
+				return i;
+		}
+		else if (m_animset_list[i].m_name)
+		{
+			if (!strcasecmp(m_animset_list[i].m_name, animName))
+				return i;
+		}
+	}
+
+	u32 i = 0;
+	if (searchList)
+	{
+		for (i = 0; i < m_animset_count; i++)
+		{
+			if (&m_animset_list[i].m_IsAvailable)
+			{
+				// wtf??
+				m_animset_list[i * 6].m_IsAvailable = false;
+				goto setname;
+			}
+		}
+
+		NewAnimSet(m_animset_count);
+
+	setname:
+		if (animName)
+			m_animset_list[i * 6].Name(animName);
+	}
+
+	return 0;
+}
+
+CZAnimSet* CZAnimMain::GetAnimSet(u32 i)
+{
+	if (i < 0 || m_animset_count <= 1)
+		return NULL;
+	else
+		return &m_animset_list[i];
+
+	return NULL;
 }
 
 char* CZAnimMain::SplitName(char* name, char** splitname)
@@ -145,7 +352,5 @@ _zanim_cmd_hdr* CZAnimMain::AddCmd(const char* name,
 	bool(*tick)(_zanim_cmd_hdr*, float*),
 	void(*end)(_zanim_cmd_hdr*))
 {
-	char* anim_name = NULL;
-	
 	return 0;
 }

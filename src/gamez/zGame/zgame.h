@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZGAME_H
+#define ZGAME_H
 #include "gamez/zFTS/fts_state.h"
 #include "gamez/zTwoD/ztwod.h"
 
@@ -114,7 +115,10 @@ protected:
 class CGameMenu
 {
 public:
+	bool Init(zdb::CTextureRelocMgr* manager, CZAnimZAR* archive);
 	void Tick(f32 dT) {}
+
+	void Clear();
 
 	void LoadFromDesign(CGameDlgDesign* design, CZAnimZAR* animfile);
 	
@@ -137,6 +141,10 @@ public:
 	bool m_movieRunning;
 	bool m_has_mpeg_background;
 
+	CSaferStr m_ReaderName;
 	CSaferStr m_MPEGName;
 	C2DButton m_ScreenControls;
+
+	zdb::CTextureRelocMgr* m_Reloc;
 };
+#endif

@@ -1,12 +1,14 @@
-#pragma once
-#include "Apps/FTS/hud.h"
+#ifndef ZSEAL_H
+#define ZSEAL_H
+#include "Apps/FTS/hud/hud.h"
 
 #include "gamez/zAI/zai.h"
 #include "gamez/zAnim/zanim.h"
 #include "gamez/zBody/zbody.h"
 #include "gamez/zEntity/zentity.h"
-#include "gamez/zPhysics/zphysics.h"
 #include "gamez/zMath/zmath.h"
+#include "gamez/zNode/node_action.h"
+#include "gamez/zSound/zsnd.h"
 #include "gamez/zSystem/zsys.h"
 #include "gamez/zUI/zui.h"
 #include "gamez/zWeapon/zweapon.h"
@@ -19,8 +21,6 @@ class CSealCtrl;
 class CAppCamera;
 
 class CCharacterGear;
-
-class CSndInstance;
 
 enum class PLAYER_CAM_STATE;
 
@@ -445,7 +445,7 @@ public:
 	void HandleDamage(CZProjectile* projectile);
 	void HandleDamageExplosive(CZBodyPart* part, DAMAGE_LOCATION location);
 	void HandleDamageNonExplosive(CZBodyPart* part, DAMAGE_LOCATION location);
-	s32 HandleFallingDamage(f32 impactForce); // TODO: Figure out what this function returns
+	s32  HandleFallingDamage(f32 impactForce); // TODO: Figure out what this function returns
 	void HandleFootfallSound(CPnt3D* position);
 	void HandleGrenadeExplosion();
 	void HandleKiller(s32 killerIndex);
@@ -470,6 +470,7 @@ public:
 	void AttemptBombDefuse() const;
 
 	CCharacterType* GetCharacter() const;
+	CCharacterGear* CZSealBody::FindGear(const char* name);
 
 	f32 GetFormationHeading(f32 heading) const;
 	void UpdateFollowParams(f32 heading);
@@ -1210,3 +1211,4 @@ public:
 	static _zanim_cmd_hdr* Parse(_zrdr* reader);
 	static bool Tick(_zanim_cmd_hdr* header, f32* delta);
 };
+#endif

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZUI_H
+#define ZUI_H
 #include <list>
 
 #include "gamez/zTwoD/ztwod.h"
@@ -146,6 +147,8 @@ public:
 class CGameDlgDesign
 {
 public:
+	CGameDlgDesign();
+
 	void LoadFromRdr(_zrdr* reader);
 	void LoadModels(_zrdr* reader);
 
@@ -161,4 +164,4 @@ public:
 };
 
 extern CUIVarManager theUIVarManager;
-
+#endif

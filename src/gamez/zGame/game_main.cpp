@@ -3,13 +3,14 @@
 #include "gamez/zRender/zrender.h"
 #include "gamez/zNetwork/znet.h"
 #include "gamez/zVideo/zvid.h"
+#include "gamez/zUI/zui.h"
 
 COurGame theGame;
 
 CGame::CGame()
 {
 	m_Active = false;
-	m_InitialState = new CMenuState();
+	m_InitialState = NULL;
 	m_CurrentState = 0;
 	m_MinIdlePeriod = 100;
 	m_TestVariable = NULL;
@@ -59,11 +60,31 @@ bool CGame::Tick(f32 dT)
 	return false;
 }
 
+bool CGameMenu::Init(zdb::CTextureRelocMgr* manager, CZAnimZAR* archive)
+{
+	Clear();
+
+	animfile = archive;
+
+	zVid.pcrtcDo = false;
+
+	if (!manager)
+		m_Reloc = NULL;
+	else
+		m_Reloc = manager;
+
+	// m_Reloc->ClearAll();
+
+	// TODO: Implement the rest of this function
+
+	return true;
+}
+
 void CGameMenu::Draw2DOnly()
 {
 	thePipe.m_node = m_pBackplaneNode;
 	thePipe.m_simpletrans = true;
-	thePipe.RenderUINode(&m_nodeTop);
+	thePipe.RenderUiNode(&m_nodeTop);
 	thePipe.m_simpletrans = false;
 }
 
@@ -72,9 +93,14 @@ void CGameMenu::DrawForeplane()
 	thePipe.m_node = m_pForeplaneNode;
 	// Enable orthographic view for UI layer
 	thePipe.m_simpletrans = true;
-	thePipe.RenderUINode(m_pForeplaneNode);
+	thePipe.RenderUiNode(m_pForeplaneNode);
 	// Disable orthographic view for UI layer
 	thePipe.m_simpletrans = false;
+}
+
+void CGameMenu::Clear()
+{
+
 }
 
 void CGameMenu::LoadFromDesign(CGameDlgDesign* design, CZAnimZAR* animfile)

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZCAMERA_H
+#define ZCAMERA_H
 #include "gamez/zAnim/zanim.h"
 #include "gamez/zMath/zmath.h"
 #include "gamez/zNode/znode.h"
@@ -15,6 +16,7 @@ class CZBodyPart;
 
 extern CAppCamera* appCamera;
 
+extern bool fogCheck;
 extern bool camera_tether_intersects_something;
 extern f32 save_short_tether_length;
 extern f32 DeltaRot;
@@ -176,12 +178,16 @@ namespace zdb
 		
 		void Update(tag_ZCAM_TYPE type);
 
-		f32 GetScaledRangeSquared(const CPnt3D& point);
+		f32 GetScaledRangeSquared(const CPnt3D& point) { return 0.0f; }
+
+		bool TestLandmarkFOG(CPnt3D* pos, f32 radius);
+		bool CanSeeRegion(u32 mask);
 
 		void SetHalfHorizontalFOVRadians(f32 radians);
 		void SetFarClip(f32 farclip);
 		
 		static bool m_dynamics_controlled;
+		static bool m_do_region_test;
 		
 		f32 m_Zmin;
 		f32 m_Zmax;
@@ -233,6 +239,9 @@ namespace zdb
 		tag_ZCAM_TYPE m_type;
 
 		u32 m_fovMask;
+
+		f32 m_yaw;
+		f32 m_pitch;
 	};
 }
 
@@ -339,3 +348,4 @@ public:
 	static CHUD* m_hud;
 	static CZSealBody* m_seal;
 };
+#endif

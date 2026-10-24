@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZENTITY_H
+#define ZENTITY_H
 #include "gamez/zAnim/zanim.h"
 #include "gamez/zNode/znode.h"
 #include "gamez/zSystem/zsys.h"
@@ -208,6 +209,7 @@ public:
 class CPickup
 {
 public:
+	void Pickup(std::vector<CEntity*> entityList);
 	void Destroy();
 private:
 	zdb::CNode* m_node;
@@ -220,3 +222,4 @@ private:
 	s16 m_netid;
 	bool m_visible_by_units;
 };
+#endif

@@ -1,5 +1,7 @@
 ﻿#include "ztwod.h"
-#include "gamez/zAssetLib/zassetlib.h"
+
+#include "gamez/zNode/node_assetlib.h"
+
 #include "gamez/zVideo/zvid.h"
 
 C2DFont::C2DFont()
@@ -327,16 +329,6 @@ void C2DFont::Load(CRdrFile* font, const char* name)
             i++;
         }
         while (i < length);
-    }
-}
-
-void C2DTTFFont::Load(const char* path)
-{
-    m_ttf_font = TTF_OpenFont(path, 12.0f);
-    
-    if (!m_ttf_font)
-    {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, SDL_GetError());
     }
 }
 

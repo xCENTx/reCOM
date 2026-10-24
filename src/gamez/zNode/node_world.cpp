@@ -1,107 +1,17 @@
-#include "znode.h"
+#include "node_world.h"
+#include "node_assetlib.h"
 
 #include "gamez/zAssetLib/zassetlib.h"
 #include "gamez/zCamera/zcam.h"
+#include "gamez/zGrid/zgrid.h"
 #include "gamez/zVisual/zvis.h"
 #include "gamez/zTexture/ztex.h"
 
-#define MIN_POOL_SIZE 3000
-#define POOL_INCREMENT 100
-
 namespace zdb
 {
-	CNodeUniverse* NodeUniverse = NULL;
-
 	CWorld* CWorld::m_world = NULL;
 	f32 CWorld::m_scale = 1.0f;
 	f32 CWorld::m_invscale = 1.0f / CWorld::m_scale;
-
-	bool CNodeUniverse::AddNode(CNode* node)
-	{
-		bool success = false;
-
-		if (!m_locked)
-		{
-			CNode* universeNode = node;
-			int universeSize = size();
-
-			if (universeSize == capacity())
-			{
-				if (capacity() < MIN_POOL_SIZE)
-				{
-					reserve(MIN_POOL_SIZE);
-				}
-				else
-				{
-					reserve(capacity() + POOL_INCREMENT);
-				}
-			}
-
-			insert(begin(), universeNode);
-			success = true;
-		}
-		else
-		{
-			success = false;
-		}
-
-		return success;
-	}
-
-	void CNodeUniverse::RemoveNode(CNode* node)
-	{
-		auto it = begin();
-		while (it != end())
-		{
-			if (*it == node)
-			{
-				break;
-			}
-
-			it++;
-		}
-
-		*it = NULL;
-	}
-
-	CNode* CNodeUniverse::GetElement(s32 index) const
-	{
-		CNode* node;
-
-		if (index < 0)
-		{
-			node = NULL;
-		}
-		else
-		{
-			node = NULL;
-
-			if (index <= size())
-			{
-				node = at(index);
-			}
-		}
-
-		return node;
-	}
-
-	int CNodeUniverse::GetIndex(CNode* node) const
-	{
-		int index = 0;
-		auto it = begin();
-		while (it != end())
-		{
-			if (*it == node)
-			{
-				break;
-			}
-
-			it++;
-			index++;
-		}
-
-		return index;
-	}
 
 	CWorld::CWorld(const char* name)
 	{
@@ -246,6 +156,59 @@ namespace zdb
 		return true;
 	}
 
+	void CWorld::GarbageCollect()
+	{
+		for (auto i = m_child.begin(); i != m_child.end(); ++i)
+		{
+			zdb::CNode* node = dynamic_cast<CCell*>(*i);
+
+			if (!node)
+				(*i)->ShrinkAtomBasePtrs();
+		}
+	}
+
+	CLightList& CWorld::GenerateLightList()
+	{
+		LightList_Search(this, m_lights);
+
+		for (auto i = m_lights.begin(); i != m_lights.end(); ++i)
+		{
+			CNode* light = *i;
+
+			CPnt3D worldPos;
+			CPnt3D localPos;
+			CPnt3D gridPos;
+
+			light->TransformToWorld(worldPos);
+
+			light->m_matrix.m_matrix[2][3] = worldPos.x;
+			light->m_matrix.m_matrix[3][0] = worldPos.y;
+			light->m_matrix.m_matrix[3][1] = worldPos.z;
+
+			localPos.y = 0.0f;
+			localPos.x = worldPos.x - light->m_matrix.m_matrix[0][2];
+			localPos.z = worldPos.z - light->m_matrix.m_matrix[0][2];
+
+			gridPos.x = worldPos.x + light->m_matrix.m_matrix[0][2];
+			gridPos.y = 0.0f;
+			gridPos.z = worldPos.z + light->m_matrix.m_matrix[0][2];
+
+			m_grid->SetTraversalBoundary(&localPos, 2, false);
+
+			for (CGridAtom* atom = m_grid->StartTraversal(); atom != NULL; atom = m_grid->GetNextAtom())
+			{
+				CNode* cell = atom->GetCell();
+
+				if (!cell)
+					continue;
+
+				cell->m_child.insert(cell->m_child.begin(), light);
+			}
+		}
+
+		return m_lights;
+	}
+
 	s32 CWorld::GenerateLandmarkList()
 	{
 		CNodeVector landmarks;
@@ -278,33 +241,4 @@ namespace zdb
 	{
 		
 	}
-
-	void CWind::Reset()
-	{
-		m_ZenithGoal = 0.0f;
-		m_AzimuthGoal = 0.0f;
-		m_SpeedGoal = 0.0f;
-		m_TickGoal = false;
-
-		m_Zenith = 0.0f;
-		m_Azimuth = 0.0f;
-		m_Speed = 8.0f;
-
-		m_AzimuthOffset = 0.0f;
-		m_MinAzimuthOffset = -0.7853982f;
-		m_MaxAzimuthOffset = 0.7853982f;
-		
-		m_ZenithOffset = 0.0f;
-		m_MinZenithOffset = -0.7853982f;
-		m_MaxZenithOffset = 0.7853982f;
-
-		m_AzimuthOffsetVelocity = 0.2617994f;
-		m_ZenithOffsetVelocity = 0.08726646f;
-
-		m_SpeedOffset = 3.0f;
-		m_MinSpeedOffset = -7.5f;
-		m_MaxSpeedOffset = 9.0f;
-		m_SpeedOffsetVelocity = 3.0f;
-	}
-
 }

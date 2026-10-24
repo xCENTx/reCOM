@@ -1,7 +1,29 @@
-#include "znode.h"
+#include "node_assetlib.h"
 
-#include "gamez/zAssetLib/zassetlib.h"
-#include "gamez/zSave/zsave.h"
+#include "znode.h"
+#include "node_model.h"
+#include "node_saveload.h"
+
+#include "gamez/zSystem//zsys.h"
+
+void HookupLib(zdb::CAssetLib lib)
+{
+	zdb::CGSTexBuffer texbuf;
+
+	for (auto it = lib.m_palettes.begin(); it != lib.m_palettes.end(); ++it)
+	{
+		texbuf.m_dyntex_list.Add(*it, true);
+		texbuf.m_chainp = NULL;
+	}
+
+	for (auto it = lib.m_textures.begin(); it != lib.m_textures.end(); ++it)
+	{
+		texbuf.m_dyntex_list.Add(*it, true);
+		texbuf.m_chainp = NULL;
+	}
+
+	texbuf.Hookup(NULL);
+}
 
 namespace zdb
 {
@@ -9,81 +31,219 @@ namespace zdb
 
 	CAssetList g_assetsRecycle;
 
-	CModel* CAssetList::GetModel(const char* name)
+	CAssetLib::CAssetLib(const char* name)
 	{
-		CModel* model = NULL;
+		m_name = NULL;
+		m_texture_buffer = NULL;
+		m_model_buffer = NULL;
+		m_iRefCount = 1;
+		m_autoload = true;
+		m_locked = false;
+		m_gearlib = false;
+		m_renderphase = _RenderPhase::WORLD;
 
-		if (m_cache_model == NULL || name == NULL || strcmp(m_cache_model->m_name, name) != 0)
+		if (m_name)
+			zfree(m_name);
+
+		m_name = zstrdup(name);
+	}
+
+	CTexHandle* CAssetList::GetTexHandle(const char* name)
+	{
+		CTexHandle* handle = NULL;
+
+		for (auto i = begin(); i != end(); i++)
 		{
-			auto it = begin();
+			CTexHandle* handle = (*i)->m_textures.GetHandle(name);
 
-			while (it != end())
+			if (handle)
+				return handle;
+		}
+
+		return NULL;
+	}
+
+	CTexHandle* CTexList::Append(CTexture* texture, bool search)
+	{
+		CTexHandle* handle = NULL;
+
+		if (search)
+		{
+			for (auto i = begin(); i != end(); i++)
 			{
-				CAssetLib* lib = *it;
-				model = lib->m_models.GetModel(name);
+				CTexHandle* h = *i;
 
-				if (model != NULL)
+				if (h->m_texture == texture)
 				{
+					handle = h;
 					break;
 				}
-
-				++it;
 			}
-
-			m_cache_model = model;
 		}
-		else
+
+		if (handle == NULL)
 		{
-			model = m_cache_model;
+			handle = CTexHandle::Create(texture);
+			insert(begin(), handle);
 		}
 
-		return model;
+		return handle;
+	}
+
+	bool CAssetLib::AddTexture(const char* name)
+	{
+		if (!name)
+			return false;
+
+		if (m_locked)
+			return false;
+
+		for (auto i = CAssetMgr::m_assets.begin(); i != CAssetMgr::m_assets.end(); i++)
+		{
+			CTexHandle* handle = (*i)->m_textures.GetHandle(name);
+
+			if (handle)
+			{
+				AddTexture(handle->m_texture);
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bool CAssetLib::AddTexture(CTexture* texture)
+	{
+		if (!texture)
+			return false;
+
+		if (m_locked)
+			return false;
+
+		for (auto i = CAssetMgr::m_assets.begin(); i != CAssetMgr::m_assets.end(); i++)
+		{
+			CTexHandle* handle = (*i)->m_textures.GetHandle(texture->m_name);
+
+			if (handle)
+				break;
+		}
+
+		m_textures.Append(texture, true);
+		texture->m_AssetLib = this;
+
+		return true;
+	}
+
+	CModel* CAssetLib::AddModel(CModel* model)
+	{
+		char* name = NULL;
+
+		CAssetLib* library = NULL;
+		CAssetLib* resolved = NULL;
+		CModel* asset = NULL;
+
+		if (m_locked)
+			return NULL;
+
+		name = model->m_name;
+		asset = model;
+
+		for (auto i = CAssetMgr::m_assets.begin(); i != CAssetMgr::m_assets.end(); i++)
+		{
+			CModel* mdl = (*i)->m_models.GetModel(name);
+
+			if (mdl)
+			{
+				library = *i;
+				break;
+			}
+		}
+
+		if (!library)
+		{
+			m_models.insert(m_models.begin(), asset);
+			asset->m_AssetLib = this;
+		}
+
+		return asset;
+	}
+
+	CTexPalette* CAssetLib::AddPalette(CTexPalette* palette, bool checkDuplicate)
+	{
+		if (checkDuplicate)
+		{
+			for (auto i = m_palettes.begin(); i != m_palettes.end(); ++i)
+			{
+				if (palette == *i)
+					return NULL;
+			}
+		}
+
+		m_palettes.insert(m_palettes.begin(), palette);
+		palette->m_AssetLib = this;
+		
+		return NULL;
+	}
+
+	CModel* CAssetList::GetModel(const char* name)
+	{
+		if (m_cache_model)
+		{
+			if (name && !strcmp(m_cache_model->m_name, name))
+				return m_cache_model;
+		}
+
+		for (auto i = begin(); i != end(); i++)
+		{
+			CAssetLib* lib = *i;
+			CModel* model = lib->m_models.GetModel(name);
+
+			if (model)
+				return m_cache_model = model;
+		}
+
+		return NULL;
 	}
 
 	bool CAssetLib::IsNamed(const char* name) const
 	{
 		bool isnamed = false;
 
-		if (strcmp(name, m_name) == 0)
-		{
-			isnamed = true;
-		}
-		else
-		{
-			size_t length = strlen(name);
-			s32 i = length - 1;
-			length = strlen(m_name);
-			s32 j = length - 1;
-			isnamed = true;
+		if (!strcmp(name, m_name))
+			return true;
 
-			// TODO:
-			// clean this up
-			do
+		size_t length = strlen(name);
+		s32 i = length - 1;
+		length = strlen(m_name);
+		s32 j = length - 1;
+		isnamed = true;
+
+		// TODO:
+		// clean this up
+		do
+		{
+			for (; (-1 < i) && (name[i] == '/' || name[i] == '\\'); --i) {}
+			for (; (-1 < j) && (m_name[j] == '/' || m_name[j] == '\\'); --j) {}
+
+			if (i < 0 || j < 0)
 			{
-				for (; (-1 < i) && (name[i] == '/' || name[i] == '\\'); --i) {}
-				for (; (-1 < j) && (m_name[j] == '/' || m_name[j] == '\\'); --j) {}
+				if (i == j)
+				{
+					return isnamed;
+				}
 
-				if (i < 0 || j < 0)
-				{
-					if (i == j)
-					{
-						return isnamed;
-					}
-
-					isnamed = false;
-				}
-				else if (name[i] == m_name[j])
-				{
-					i--;
-					j--;
-				}
-				else
-				{
-					isnamed = false;
-				}
+				isnamed = false;
 			}
-			while (isnamed);
-		}
+			else if (name[i] == m_name[j])
+			{
+				i--;
+				j--;
+			}
+			else
+			{
+				isnamed = false;
+			}
+		} while (isnamed);
 
 		return isnamed;
 	}
@@ -110,64 +270,49 @@ namespace zdb
 		CAssetLib* lib = NULL;
 		
 		if (!name)
-		{
 			return NULL;
-		}
-		else
+
+		for (auto i = begin(); i != end(); i++)
 		{
-			auto it = begin();
-
-			while (it != end())
+			if ((*i)->IsNamed(name))
 			{
-				if ((*it)->IsNamed(name))
+				lib = *i;
+				break;
+			}
+		}
+
+		if (lib)
+			return lib;
+
+		// If the library doesn't have a proper name -
+		// search any subdirectories
+		for (auto i = begin(); i != end(); i++)
+		{
+			CAssetLib* alib = *i;
+
+			size_t length = strlen(alib->m_name);
+			s32 idx = length - 1;
+			char* libname = NULL;
+
+			if (idx > -1)
+			{
+				do
 				{
-					lib = *it;
-					break;
-				}
-				
-				++it;
+					char c = alib->m_name[idx];
+
+					if (c == '/' || c == '\\')
+					{
+						libname = alib->m_name + idx + 1;
+					}
+
+					idx--;
+				} while (idx > -1);
 			}
 
-			// If the library doesn't have a proper name -
-			// search any subdirectories
-			if (!lib)
-			{
-				it = begin();
+			libname = alib->m_name + idx + 1;
 
-				while (it != end())
-				{
-					CAssetLib* alib = *it;
-
-					size_t length = strlen(alib->m_name);
-					s32 idx = length - 1;
-					char* libname = NULL;
-					
-					if (idx > -1)
-					{
-						do
-						{
-							char c = alib->m_name[idx];
-
-							if (c == '/' || c == '\\')
-							{
-								libname = alib->m_name + idx + 1;
-							}
-
-							idx--;
-						}
-						while (idx > -1);
-					}
-					
-					libname = alib->m_name + idx + 1;
-
-					if (strcmp(libname, name) == 0)
-					{
-						return *it;
-					}
-					
-					++it;
-				}
-			}
+			if (strcmp(libname, name) == 0)
+				return *i;
 		}
 
 		return lib;
@@ -184,9 +329,9 @@ namespace zdb
 			lib = g_assetsRecycle.FindLib(name);
 
 			// Still nothing in the recycle bin
-			// Empty the whole thing
 			if (!lib)
 			{
+				// Empty the whole thing
 				for (auto it = g_assetsRecycle.begin(); it != g_assetsRecycle.end(); ++it)
 				{
 					delete *it;
@@ -194,10 +339,12 @@ namespace zdb
 
 				g_assetsRecycle.erase(g_assetsRecycle.begin(), g_assetsRecycle.end());
 
+				// Attempt to load the asset
 				CSaveLoad sload;
 				CAssetLib* assetlib = new CAssetLib(name);
 				m_assets.insert(m_assets.begin(), assetlib);
-				sload.LoadAssetLib(NULL, assetlib, 255);
+				lib = assetlib;
+				sload.LoadAssetLib(NULL, assetlib, TYPE_ALL);
 			}
 			else
 			{
@@ -225,5 +372,4 @@ namespace zdb
 		
 		return lib;
 	}
-
 }

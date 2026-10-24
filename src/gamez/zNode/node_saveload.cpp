@@ -1,8 +1,13 @@
 #include "znode.h"
+#include "node_saveload.h"
 
 #include "gamez/zArchive/zar.h"
-#include "gamez/zAssetLib/zassetlib.h"
 #include "gamez/zFTS/zfts.h"
+
+#include "gamez/zNode/node_world.h"
+#include "gamez/zNode/node_assetlib.h"
+
+#include "gamez/zGrid/zgrid.h"
 #include "gamez/zSave/zsave.h"
 #include "gamez/zPhysics/zphysics.h"
 #include "gamez/zSystem/zsys.h"
@@ -72,6 +77,164 @@ namespace zdb
 		return false;
 	}
 	
+	CSaveLoad::CSaveLoad()
+	{
+		m_world = NULL;
+		m_zfile = zar::CZAR();
+		m_zed_filename[0] = '\0';
+		m_version = 0;
+	}
+
+	bool CSaveLoad::LoadAssetLib(CWorld* world, CAssetLib* library, u32 type)
+	{
+		return LoadAssetLib_PS2(world, library, type);
+	}
+
+	bool CSaveLoad::LoadAssetLib_PS2(CWorld* world, CAssetLib* library, u32 type)
+	{
+		bool success = true;
+
+		m_world = world;
+
+		if ((type & TYPE_TEXTURES) != 0)
+		{
+			std::string temp(library->RootName());
+			temp.assign(temp.substr(0, 4));
+
+			sprintf(m_zed_filename, "run/%s/%s%s.zed", library->m_name, temp.c_str(), "_txr");
+
+			if (!m_zfile.Open(m_zed_filename, CWorld::GetVersion(), 1, 16))
+			{
+				m_zfile.Close();
+				success = false;
+			}
+			else
+			{
+				success = LoadTextures_PS2(library);
+				m_zfile.Close();
+			}
+		}
+
+		if ((type & TYPE_PALETTES) != 0)
+		{
+			std::string temp(library->RootName());
+			temp.assign(temp.substr(0, 4));
+
+			sprintf(m_zed_filename, "run/%s/%s%s.zed", library->m_name, temp.c_str(), "_pal");
+
+			if (!m_zfile.Open(m_zed_filename, CWorld::GetVersion(), 1, 16))
+			{
+				m_zfile.Close();
+				success = false;
+			}
+			else
+			{
+				success = LoadPalettes_PS2(library);
+				m_zfile.Close();
+			}
+		}
+
+		if ((type & TYPE_MODELS) != 0)
+		{
+			std::string temp(library->RootName());
+			temp.assign(temp.substr(0, 4));
+
+			sprintf_s(m_zed_filename, "run/%s/%s%s.zed", library->m_name, temp.c_str(), "_mdl");
+
+			if (!m_zfile.Open(m_zed_filename, CWorld::GetVersion(), 1, 16))
+			{
+				m_zfile.Close();
+				success = false;
+			}
+			else
+			{
+				if (zar::CKey* key = m_zfile.OpenKey("models"))
+				{
+					for (auto i = key->begin(); i != key->end(); ++i)
+					{
+						if (zar::CKey* modelKey = m_zfile.OpenKey(*i))
+						{
+							CModel* model = CModel::Create(*this, NULL);
+
+							if (model)
+								library->AddModel(model);
+
+							m_zfile.CloseKey(modelKey);
+						}
+					}
+
+					m_zfile.CloseKey(key);
+				}
+
+				m_zfile.Close();
+			}
+		}
+
+		return success;
+	}
+
+	bool CSaveLoad::LoadTextures_PS2(CAssetLib* library)
+	{
+		CTexture* texture = NULL;
+		s32 renderphase;
+
+		// TODO: fix renderphase enum
+		m_zfile.Fetch("renderphase", &renderphase);
+
+		if (zar::CKey* key = m_zfile.OpenKey("textures"))
+		{
+			for (auto i = key->begin(); i != key->end(); i++)
+			{
+				zar::CKey* textureKey = m_zfile.OpenKey(*i);
+
+				if (!textureKey)
+					continue;
+
+				char* name = textureKey->GetName();
+				CTexHandle* handle = CAssetMgr::m_assets.GetTexHandle(name);
+
+				if (!handle && !library->AddTexture(name))
+				{
+					texture = new CTexture(name);
+
+					if (!texture->Read(*this))
+						delete texture;
+					else
+						library->AddTexture(texture);
+				}
+
+				m_zfile.CloseKey(textureKey);
+			}
+			
+			m_zfile.CloseKey(key);
+		}
+
+		library->m_texture_buffer = m_zfile.ReleaseDataBuffer();
+		return true;
+	}
+
+	bool CSaveLoad::LoadPalettes_PS2(CAssetLib* library)
+	{
+		if (zar::CKey* paletteKey = m_zfile.OpenKey("palettes"))
+		{
+			for (auto i = paletteKey->begin(); i != paletteKey->end(); ++i)
+			{
+				if (zar::CKey* key = m_zfile.OpenKey(*i))
+				{
+					CTexPalette* palette = new CTexPalette(key->GetName());
+					palette->Read(*this);
+					library->AddPalette(palette, false);
+					
+					m_zfile.CloseKey(key);
+				}
+			}
+			
+			m_zfile.CloseKey(paletteKey);
+		}
+
+		return true;
+	}
+
 	CWorld* CSaveLoad::Load(const char* name)
 	{
 		f32 metersperunit = 0.0f;
@@ -83,7 +246,7 @@ namespace zdb
 		
 		zdb::CWorld* world = NULL;
 		
-		FilterMissionFolder(name, gamez_GameRunPath, name, m_zed_filename);
+		FilterMissionFolder(name, "/run", name, m_zed_filename);
 		strcat_s(m_zed_filename, "/");
 		strcat_s(m_zed_filename, name);
 		strcat_s(m_zed_filename, ".zed");
@@ -148,38 +311,24 @@ namespace zdb
 		}
 
 		m_world->m_grid->Read(*this);
-
-		zar::CKey* key = m_zfile.OpenKey("assetlibs");
 			
-		if (key)
+		if (zar::CKey* key = m_zfile.OpenKey("assetlibs"))
 		{
-			auto it = key->begin();
-
-			while (it != key->end())
-			{
-				CAssetMgr::GetLoadedLibRef((*it)->GetName());
-				++it;
-			}
+			for (auto i = key->begin(); i != key->end(); ++i)
+				CAssetMgr::GetLoadedLibRef((*i)->GetName());
 
 			m_zfile.CloseKey(key);
 		}
 
-		key = m_zfile.OpenKey("light_list");
-
-		if (key)
+		if (zar::CKey* key = m_zfile.OpenKey("light_list"))
 		{
-			auto it = key->begin();
-			while (it != key->end())
+			for (auto i = key->begin(); i != key->end(); ++i)
 			{
-				zar::CKey* light_key = m_zfile.OpenKey(*it);
-
-				if (light_key)
+				if (zar::CKey* light_key = m_zfile.OpenKey(*i))
 				{
 					CNode::Read(*this, m_world);
 					m_zfile.CloseKey(light_key);
 				}
-				
-				++it;
 			}
 
 			m_zfile.CloseKey(key);

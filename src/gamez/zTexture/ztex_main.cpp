@@ -1,8 +1,9 @@
 #include "ztex.h"
 
 #include "gamez/zArchive/zar.h"
-#include "gamez/zSave/zsave.h"
+#include "gamez/zNode/node_saveload.h"
 #include "gamez/zVideo/zvid.h"
+#include "posix/strcasecmp.h"
 
 namespace zdb
 {
@@ -62,127 +63,47 @@ namespace zdb
 
 	bool CTexture::Read(zdb::CSaveLoad& sload)
 	{
+		_word128 texturePacket;
 		bool success = false;
-		_word128* lipbuf = NULL;
-		auto texdat = sload.m_zfile.FindKey("texdat");
 
-		if (texdat && sload.m_zfile.FetchLIP(texdat, (void**)&lipbuf))
+		if (zar::CKey* dataKey = sload.m_zfile.FindKey("texdat"))
 		{
 			success = true;
-			memcpy(this, lipbuf, sizeof(TEXTURE_PARAMS));
-			u32 ofs = lipbuf[1].u32[0];
-			m_buffer = lipbuf->u8 + ofs + 0x18;
+			sload.m_zfile.FetchLIP(dataKey, reinterpret_cast<void**>(&texturePacket));
+
+			memcpy(this, &texturePacket, sizeof(TEXTURE_PARAMS));
+
+			_word128* texGifPtr = &texturePacket;
+			void* bufferPtr = static_cast<void*>(&texGifPtr[1].u32[0]);
+
+			m_buffer = static_cast<void*>(bufferPtr);
 		}
 
-		if (m_texelBitSize == 4)
+		switch (m_texelBitSize)
 		{
-			m_format = SDL_PIXELFORMAT_ABGR4444;
+		case 4:
+			m_format = 20;
+			break;
+		case 8:
+			m_format = 19;
+			break;
+		case 16:
+			m_palettized = true;
+			break;
+		case 24:
+			m_format = 1;
+			goto nopal;
+		case 32:
+			m_format = 0;
+			goto nopal;
 		}
-		else if (m_texelBitSize == 8)
-		{
-			m_format = SDL_PIXELFORMAT_ABGR8888;
-		}
+
+		if (!m_transp_1bit)
+			m_format = 19;
 		else
-		{
-			bool palettized = false;
-			
-			if (m_texelBitSize == 16)
-			{
-				palettized = m_palettized;
-			}
-			else
-			{
-				if (m_texelBitSize == 24)
-				{
-					m_format = SDL_PIXELFORMAT_BGR24;
-					m_palID = m_pal_offset >> 50;
-					return success;
-				}
-
-				if (m_texelBitSize == 32)
-				{
-					m_format = SDL_PIXELFORMAT_ABGR32;
-					m_palID = m_pal_offset >> 50;
-					return success;
-				}
-
-				palettized = m_palettized;
-			}
-
-			if (palettized)
-			{
-				m_format = SDL_PIXELFORMAT_INDEX8;
-			}
-			else
-			{
-				m_format = SDL_PIXELFORMAT_BGRA5551;
-			}
-		}
-
-		m_palID = m_pal_offset >> 50;
-		return success;
-	}
-	
-	bool CTexture::Read(zar::CZAR& archive)
-	{
-		bool success = false;
-		_word128* lipbuf = NULL;
-		auto texdat = archive.FindKey("texdat");
-
-		if (texdat && archive.FetchLIP(texdat, (void**)&lipbuf))
-		{
-			success = true;
-			memcpy(this, lipbuf, sizeof(TEXTURE_PARAMS));
-			u32 ofs = lipbuf[1].u32[0];
-			m_buffer = lipbuf->u8 + ofs + 0x18;
-		}
-
-		if (m_texelBitSize == 4)
-		{
-			m_format = SDL_PIXELFORMAT_RGBA4444;
-		}
-		else if (m_texelBitSize == 8)
-		{
-			m_format = SDL_PIXELFORMAT_RGBA8888;
-		}
-		else
-		{
-			bool palettized = false;
-			
-			if (m_texelBitSize == 16)
-			{
-				palettized = m_palettized;
-			}
-			else
-			{
-				if (m_texelBitSize == 24)
-				{
-					m_format = SDL_PIXELFORMAT_RGB24;
-					m_palID = m_pal_offset >> 50;
-					return success;
-				}
-
-				if (m_texelBitSize == 32)
-				{
-					m_format = SDL_PIXELFORMAT_RGBA32;
-					m_palID = m_pal_offset >> 50;
-					return success;
-				}
-
-				palettized = m_palettized;
-			}
-
-			if (palettized)
-			{
-				m_format = SDL_PIXELFORMAT_INDEX8;
-			}
-			else
-			{
-				m_format = SDL_PIXELFORMAT_RGBA5551;
-			}
-		}
-
-		m_palID = m_pal_offset >> 50;
+			m_format = 2;
+nopal:
+		m_palID = 0;
 		return success;
 	}
 	
@@ -269,30 +190,20 @@ namespace zdb
 
 	CTexHandle* CTexList::GetHandle(const char* name)
 	{
-		CTexHandle* handle = NULL;
-		
-		auto it = begin();
-
-		while (it != end())
+		for (auto i = begin(); i != end(); ++i)
 		{
-			CTexHandle* cur_handle = *it;
+			CTexHandle* cur = *i;
 
-			if (!cur_handle->m_texture || !cur_handle->m_name)
+			if (!cur->m_texture || !cur->m_name)
 			{
-				++it;
 				continue;
 			}
 
-			if (SDL_strcasecmp(cur_handle->m_name, name) == 0)
-			{
-				handle = cur_handle;
-				break;
-			}
-			
-			++it;
+			if (strcasecmp(cur->m_name, name) == 0)
+				return cur;
 		}
 
-		return handle;
+		return NULL;
 	}
 
 }

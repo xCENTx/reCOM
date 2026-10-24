@@ -1,9 +1,11 @@
-#pragma once
+#ifndef ZFTS_H
+#define ZFTS_H
 
 #include "gamez/zAI/zai.h"
 #include "gamez/zEntity/zentity.h"
 #include "gamez/zNode/znode.h"
 #include "gamez/zReader/zrdr.h"
+#include "gamez/zSave/zsave.h"
 #include "gamez/zSystem/zsys.h"
 #include "gamez/zValve/zvalve.h"
 #include "gamez/zUI/zui.h"
@@ -77,21 +79,26 @@ class CMission : CSaveModule
 public:
 	CMission() : CSaveModule("CMission", NULL) {}
 
+	static char* m_weaponmodelpostfix;
 	static f32 nextFrameDelta;
 
 	bool Init();
 
 	void Open();
 	void PreOpen(const char* db);
+	void OpenVehicleRdr();
+	void CloseVehicleRdr();
+
 	void Read(_zrdr* reader);
 
+	void OnMissionStart();
 	void OnMissionComplete(MISSION_STATE state);
 	
 	void Tick(f32 dT);
 	void TickInFirefight(f32 dT);
 	
 	CZNetGame* netGame;
-private:
+
 	MISSION_STATE m_state;
 
 	char* m_database;
@@ -180,3 +187,4 @@ class CZBombState
 public:
 	static s32 m_FutureBombState;
 };
+#endif

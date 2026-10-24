@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZREADER_H
+#define ZREADER_H
 #include "gamez/zArchive/zar.h"
 #include "gamez/zMath/zmath.h"
 #include "gamez/zSystem/zsys.h"
@@ -6,12 +7,13 @@
 
 #define MAX_ZRDR_PATH_LEN 767
 
-#define pptoken_ifdef 0 
-#define pptoken_else 1
-#define pptoken_endif 2
-#define pptoken_include 3
-#define pptoken_undef 4
+#define pptoken_ifdef 1 << 0
+#define pptoken_else  1 << 1
+#define pptoken_endif 1 << 2
+#define pptoken_include 1 << 3
+#define pptoken_undef 1 << 4
 
+#define ZRDR_FLAG_RAW   0x1
 #define ZRDR_FLAG_ALLOC 0x4
 
 struct _zrdr;
@@ -52,7 +54,7 @@ const char* zrdr_findfile(const char* file, const char* path);
 /// Frees a zReader object's memory.
 /// @param reader The reader to free.
 /// @return The number of bytes freed.
-s32 zrdr_free(CRdrFile* reader);
+bool zrdr_free(CRdrFile* reader);
 
 /// Frees a node inside of a zReader array.
 /// @param array The array to free.
@@ -63,6 +65,8 @@ void zrdr_freearray(_zrdr* array);
 /// @param tag The name of the tag to find.
 /// @return The string from the found node. If NULL, this means that the tag doesn't exist.
 char* zrdr_findstring(_zrdr* reader, const char* tag);
+
+bool zrdr_findSTRING(_zrdr* reader, const char* tag, const char** list);
 
 /// Finds an integer.
 /// @param reader A zReader array node.
@@ -153,11 +157,13 @@ struct _zrdr
 	
 	void Clone(const _zrdr* other, const CSTable* table);
 	
-	_zrdr*    Get(s32 offset) const;
-	u32       GetLength()     const;
-	s32       GetInt()        const;
-	ZRDR_TYPE GetType()       const;
-	bool      IsArray()       const;
+	inline _zrdr*    Get(s32 offset = 0) const;
+	inline u32       GetLength()         const;
+	inline s32       GetInt()            const;
+	inline f32       GetFloat()          const;
+	inline ZRDR_TYPE GetType()           const;
+	inline bool      IsArray()           const;
+	inline bool      IsString()          const;
 	
 	bool Write(FILE* file);
 
@@ -222,3 +228,4 @@ public:
 
 	size_t fread(void* buf, size_t size);
 };
+#endif

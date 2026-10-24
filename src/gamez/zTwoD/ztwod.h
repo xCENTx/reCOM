@@ -1,11 +1,10 @@
-#pragma once
-#include <SDL3/SDL.h>
+#ifndef ZTWOD_H
+#define ZTWOD_H
 
 #include "gamez/zAnim/zanim.h"
 #include "gamez/zCamera/zcam.h"
 #include "gamez/zInput/zinput.h"
 #include "gamez/zSystem/zsys.h"
-#include "SDL3/SDL_ttf.h"
 
 class C2D;
 class C2DFont;
@@ -31,6 +30,8 @@ class C2Dlist : public std::list<C2D*> {};
 class C2D : public C2Dlist
 {
 public:
+	class CLibList : public std::vector<zdb::CAssetLib*> {};
+
 	C2D();
 
 	static void Init();
@@ -45,19 +46,21 @@ public:
 	static f32 m_fXPixel;
 	static f32 m_fYPixel;
 
+	virtual void Parse(_zrdr* rdr, zdb::CAssetLib* lib, zdb::CTextureRelocMgr* manager) {}
+	virtual void GetAssetLibs(CLibList& libs);
 	virtual void Draw(const CMatrix& transform, zdb::CTextureRelocMgr* manager) {}
 	virtual void Draw(zdb::CCamera* camera);
 	virtual void Reset() {}
-	virtual void Tick(float dT) {}
-	virtual bool TickZAnimCmd(_zanim_cmd_hdr* header, float* delta, bool* enable) { return false; }
+	virtual void Tick(f32 dT) {}
+	virtual bool TickZAnimCmd(_zanim_cmd_hdr* header, f32* delta, bool* enable) { return false; }
 	virtual bool ParseZAnimCmd(_zrdr* reader) { return false; }
 	virtual bool HandlePad(const CPad* pad, int index) { return false; }
 
 	virtual void SetActive() {}
 	virtual void SetNormal() {}
-	virtual void SetTrans(float translation) {}
+	virtual void SetTrans(f32 translation) {}
 	virtual void SetUseFrameBufferAlpha(bool enable);
-	virtual void SetMapOffset(int x, int y) {}
+	virtual void SetMapOffset(s32 x, s32 y) {}
 
 	void Enable(bool enable);
 	void On();
@@ -122,9 +125,6 @@ private:
 	f32 m_NewUV[2][4];
 
 	zdb::CTexHandle* m_pTexHandle;
-	SDL_Texture* m_pSDLTexture;
-	SDL_FRect m_rect;
-
 	s32 m_iWidth;
 	s32 m_iHeight;
 };
@@ -133,10 +133,33 @@ class C2DPoly : public C2D
 {
 public:
 	C2DPoly();
+
+	void SetTrans(f32 transparency);
+	void SetColor(f32 r, f32 g, f32 b);
+	void SetUV(f32 v0u, f32 v0v, f32 v1u, f32 v1v, f32 v2u, f32 v2v);
+
+	void Draw(zdb::CCamera* camera);
+	void MakePacket(zdb::CCamera* camera);
+	void Load(f32 v0x, f32 v0y, f32 v1x, f32 v1y, f32 v2x, f32 v2y, zdb::CTexture* texture);
+
+	s32 m_x;
+	s32 m_y;
+	f32 m_RGB[3][4];
+	f32 m_NewUV[3][4];
+	f32 m_vertex[3][4];
+	zdb::CTexture* m_texture;
 };
 
 class C2DBitmapPoly : public C2D, protected C2DFade
 {
+public:
+	void SetTrans(f32 transparency);
+	void SetColor(f32 r, f32 g, f32 b);
+	void SetUV(f32 v0u, f32 v0v, f32 v1u, f32 v1v, f32 v2u, f32 v2v);
+
+	void Load(f32 v0x, f32 v0y, f32 v1x, f32 v1y, f32 v2x, f32 v2y, f32 v3x, f32 v3y, zdb::CTexture* texture);
+	void Draw(zdb::CCamera* camera);
+
 	s32 x1;
 	s32 x2;
 	s32 y1;
@@ -172,11 +195,6 @@ public:
 	void Load(f32 scale, const char* message, C2DFont* font, s32 x, s32 y);
 	
 	C2DFont* m_font;
-	C2DTTFFont* m_ttf_font;
-
-	SDL_FRect m_rect;
-
-	SDL_Texture* m_strTexture;
 	
 	char* m_string;
 	s32 m_stringlen_max;
@@ -303,24 +321,6 @@ public:
 	f32 m_scale_factor;
 };
 
-class C2DTTFFont : public C2D
-{
-public:
-	void Load(const char* path);
-
-	TTF_Font* m_ttf_font;
-	
-	std::vector<C2DFontEntry*> m_charlist;
-	zdb::CTexHandle* m_pTexHandle;
-	zdb::CTexHandle* m_pGlowTexHandle;
-	s32 m_displaytop;
-	s32 m_displaybottom;
-	s32 XPadding;
-	f32 m_avgWidth;
-	f32 m_opacity;
-	f32 m_scale_factor;
-};
-
 class C2DMessage_Q : public C2D
 {
 public:
@@ -413,3 +413,4 @@ public:
 
 	f32 _fPressedTime;
 };
+#endif

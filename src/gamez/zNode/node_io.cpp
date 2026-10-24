@@ -1,7 +1,11 @@
 #include "znode.h"
-#include "gamez/zAssetLib/zassetlib.h"
+#include "node_model.h"
+#include "node_world.h"
+#include "node_light.h"
+#include "node_saveload.h"
+#include "node_lensflare.h"
 
-#include "gamez/zSave/zsave.h"
+#include "gamez/zAssetLib/zassetlib.h"
 
 namespace zdb
 {
@@ -9,78 +13,102 @@ namespace zdb
 	{
 		tag_NODE_PARAMS nparams;
 		CNode* node = NULL;
+		char* modelname = NULL;
+		u32 regionmask = 0;
+
+		if (!CWorld::m_world)
+			return NULL;
+
+		if (!&sload.m_zfile)
+			return NULL;
+
+		InitNodeParams(&nparams, NULL);
 
 		nparams.m_matrix = CMatrix::identity;
 
-		if (CWorld::m_world == NULL)
-		{
-			node = NULL;
-		}
-		else
-		{
-			InitNodeParams(&nparams, NULL);
+		sload.m_zfile.Fetch("model_name", &modelname);
+		sload.m_zfile.Fetch("nparams", &nparams, sizeof(tag_NODE_PARAMS));
+		sload.m_zfile.Fetch("regionmask", &regionmask);
 
-			if (&sload.m_zfile == NULL)
-			{
-				node = NULL;
-			}
-			else
-			{
-				char* modelname = NULL;
-				u32 regionmask = 0;
+		if (!modelname)
+			return NULL;
 
-				sload.m_zfile.Fetch("model_name", &modelname);
-				sload.m_zfile.Fetch("nparams", &nparams, sizeof(tag_NODE_PARAMS));
-				sload.m_zfile.Fetch("regionmask", &regionmask);
+		CModel* model = CWorld::GetModel(modelname);
 
-				node = NULL;
+		if (!model)
+			return NULL;
 
-				if (modelname != NULL)
-				{
-					CModel* model = CWorld::GetModel(modelname);
+		if (!modelname)
+			zfree(modelname);
 
-					if (modelname == NULL)
-					{
-						zfree(modelname);
-					}
+		modelname = NULL;
 
-					modelname = NULL;
-
-					if (model == NULL)
-					{
-						node = NULL;
-					}
-					else
-					{
-						node = CreateInstance(model, NULL, NULL);
-						node->m_matrix = nparams.m_matrix;
-						node->m_bbox.m_min = nparams.m_bbox.m_min;
-						node->m_bbox.m_max = nparams.m_bbox.m_max;
-						node->m_type = nparams.m_type;
-						node->ReadDataBegin(sload);
-					}
-				}
-			}
-		}
+		node = CreateInstance(model, NULL, NULL);
+		node->m_matrix = nparams.m_matrix;
+		node->m_bbox.m_min = nparams.m_bbox.m_min;
+		node->m_bbox.m_max = nparams.m_bbox.m_max;
+		node->m_type = nparams.m_type;
+		node->ReadDataBegin(sload);
 
 		return node;
 	}
 	
-	CNode* CNode::CreateInstance(const char* name, const CPnt3D* position, const CPnt3D* rotation)
+	CNode* CNode::CreateInstance(const char* name, const CPnt3D* position, const CQuat* rotation)
 	{
-		return NULL;
+		if (!name)
+			return NULL;
+
+		if (!CWorld::m_world)
+			return NULL;
+
+		CModel* model = CWorld::GetModel(name);
+
+		if (!model)
+			return NULL;
+
+		CNode* instance = model->Copy();
+
+		if (position)
+			instance->SetPosition(position->x, position->y, position->z);
+
+		if (rotation)
+			instance->SetRotation(rotation);
+
+		model->m_child.insert(model->m_child.begin(), instance);
+		model->m_parent = instance;
+		instance->m_model = model;
+		instance->SetModelname(model->m_name);
+		instance->m_type = (u32)TYPE::INSTANCE;
+
+		return instance;
 	}
 
-	CNode* CNode::CreateInstance(CModel* model, const CPnt3D* position, const CPnt3D* rotation)
+	CNode* CNode::CreateInstance(CModel* model, const CPnt3D* position, const CQuat* rotation)
 	{
-		return NULL;
+		if (!model)
+			return NULL;
+
+		CNode* instance = model->Copy();
+
+		if (position)
+			instance->SetPosition(position->x, position->y, position->z);
+
+		if (rotation)
+			instance->SetRotation(rotation);
+
+		model->m_child.insert(model->m_child.begin(), instance);
+		model->m_parent = instance;
+		instance->m_model = model;
+		instance->SetModelname(model->m_name);
+		instance->m_type = (u32)TYPE::INSTANCE;
+
+		return instance;
 	}
 
 	CNode* CNode::Read(CSaveLoad& sload, CNode* parent)
 	{
-		CNode* node = NULL;
-		
 		tag_NODE_PARAMS nparams;
+		CNode* node = NULL;
 		u32 nodetype = 0;
 		u32 regionmask = 0;
 
@@ -96,19 +124,19 @@ namespace zdb
 			sload.m_zfile.Fetch("nparams", &nparams, sizeof(tag_NODE_PARAMS));
 			sload.m_zfile.Fetch("regionmask", &regionmask);
 
-			switch (nparams.m_type)
+			switch ((CNode::TYPE)nparams.m_type)
 			{
-			case TYPE::NODE_TYPE_CHILD:
+			case TYPE::INSTANCE:
 				isChild = true;
 				break;
-			case TYPE::NODE_TYPE_GENERIC:
-			case TYPE::NODE_TYPE_UNK5:
+			case TYPE::GENERIC:
+			case TYPE::UNK5:
 				node = new CNode();
 				break;
-			case TYPE::NODE_TYPE_LIGHT:
+			case TYPE::LIGHT:
 				node = new CLight();
 				break;
-			case TYPE::NODE_TYPE_LENSFLARE:
+			case TYPE::LENSFLARE:
 				node = new CLensFlare();
 				break;
 			}
@@ -167,16 +195,12 @@ namespace zdb
 				if (!node->Read(sload))
 				{
 					if (node)
-					{
 						delete node;
-					}
 					
 					node = NULL;
 				}
 				else if (parent)
-				{
 					parent->AddChild(node);
-				}
 			}
 		}
 		else
@@ -190,14 +214,38 @@ namespace zdb
 			node = new CNode();
 
 			if (node->Read(sload) && parent)
-			{
 				parent->AddChild(node);
-			}
 
 			sload.m_zfile.CloseKey(key);
 		}
 
 		return node;
+	}
+
+	CNode* CNode::CreateXRef()
+	{
+		CNode* xref = new CNode();
+		xref->m_type = static_cast<u32>(TYPE::CHILD);
+		xref->SetName("XRef");
+		return xref;
+	}
+
+	CNode* CNode::CreateXRef(CModel* model, const CPnt3D* position, const CQuat* rotation)
+	{
+		if (!model)
+			return NULL;
+
+		CNode* xref = new CNode();
+
+		if (position)
+			xref->SetPosition(position->x, position->y, position->z);
+
+		if (rotation)
+			xref->SetRotation(rotation);
+
+		xref->m_type = static_cast<u32>(TYPE::CHILD);
+		xref->SetName("XRef");
+		xref->AddChild(model);
 	}
 
 	bool CNode::Read(CSaveLoad& sload)
@@ -206,24 +254,18 @@ namespace zdb
 		{
 			ReadDataBegin(sload);
 
-			zar::CKey* childrenkey = sload.m_zfile.OpenKey("children");
-
-			if (childrenkey)
+			if (zar::CKey* children = sload.m_zfile.OpenKey("children"))
 			{
-				ReserveChildren(childrenkey->GetSize());
+				ReserveChildren(children->GetSize());
 
-				auto it = childrenkey->begin();
-
-				while (it != childrenkey->end())
+				for (auto i = children->begin(); i != children->end(); ++i)
 				{
-					zar::CKey* key = sload.m_zfile.OpenKey(*it);
+					zar::CKey* key = sload.m_zfile.OpenKey(*i);
 					Read(sload, this);
 					sload.m_zfile.CloseKey(key);
-
-					it++;
 				}
 
-				sload.m_zfile.CloseKey(childrenkey);
+				sload.m_zfile.CloseKey(children);
 			}
 		}
 		else
@@ -232,120 +274,59 @@ namespace zdb
 			SetName(openkey->GetName());
 			sload.m_zfile.Fetch("matrix", &m_matrix, sizeof(CMatrix));
 			sload.m_zfile.Fetch("bbox", &m_bbox, sizeof(CBBox));
-			zar::CKey* visualskey = sload.m_zfile.OpenKey("visuals");
 
 			// If the node has visuals
-			if (visualskey)
+			if (zar::CKey* visuals = sload.m_zfile.OpenKey("visuals"))
 			{
-				ReserveVisuals(visualskey->GetSize());
-				auto it = visualskey->begin();
+				ReserveVisuals(visuals->GetSize());
 
-				while (it != visualskey->end())
+				for (auto i = visuals->begin(); i != visuals->end(); ++i)
 				{
-					zar::CKey* key = sload.m_zfile.OpenKey(*it);
-				
-					if (key)
+					if (zar::CKey* key = sload.m_zfile.OpenKey(*i))
 					{
 						CVisual* vis = CVisual::Create(sload.m_zfile);
 						AddVisual(vis);
 						sload.m_zfile.CloseKey(key);
 					}
-
-					it++;
 				}
 
-				sload.m_zfile.CloseKey(visualskey);
+				sload.m_zfile.CloseKey(visuals);
 			}
 
-			zar::CKey* dikey = sload.m_zfile.OpenKey("di");
-
 			// If the node has collision data
-			if (dikey)
+			if (zar::CKey* di = sload.m_zfile.OpenKey("di"))
 			{
-				ReserveDI(dikey->GetSize());
+				ReserveDI(di->GetSize());
 
-				auto it = dikey->begin();
-
-				while (it != dikey->end())
+				for (auto i = di->begin(); i != di->end(); ++i)
 				{
-					zar::CKey* key = sload.m_zfile.OpenKey(*it);
-
-					if (key)
+					if (zar::CKey* key = sload.m_zfile.OpenKey(*i))
 					{
 						CDI* di = CDI::Create(sload);
 						AddDI(di);
 						sload.m_zfile.CloseKey(key);
 					}
-
-					it++;
 				}
 
-				sload.m_zfile.CloseKey(dikey);
+				sload.m_zfile.CloseKey(di);
 			}
 		}
-
-		zar::CKey* childrenkey = sload.m_zfile.OpenKey("children");
 
 		// If the node has children
-		if (childrenkey)
+		if (zar::CKey* children = sload.m_zfile.OpenKey("children"))
 		{
-			ReserveChildren(childrenkey->GetSize());
+			ReserveChildren(children->GetSize());
 
-			auto it = childrenkey->begin();
-
-			while (it != childrenkey->end())
+			for (auto i = children->begin(); i != children->end(); ++i)
 			{
-				zar::CKey* key = sload.m_zfile.OpenKey(*it);
+				zar::CKey* key = sload.m_zfile.OpenKey(*i);
 				Read(sload, this);
 				sload.m_zfile.CloseKey(key);
-
-				it++;
 			}
 
-			sload.m_zfile.CloseKey(childrenkey);
+			sload.m_zfile.CloseKey(children);
 		}
 		
-		return true;
-	}
-
-	CModel::CModel(const char* name)
-	{
-		m_AssetLib = NULL;
-		m_type = 7;
-		m_bbox_valid = false;
-		SetName(name);
-		m_variant = 0;
-		m_bForceExport = false;
-	}
-	
-	CModel* CModel::Create(CSaveLoad& sload, CAssetLib* library)
-	{
-		CModel* model = new CModel(NULL);
-
-		if (library && model)
-		{
-			library->AddModel(model);
-		}
-
-		if (!model->Read(sload))
-		{
-			// TODO: Destroy the model after adding to the list. Node data is invalid.
-
-			model = NULL;
-		}
-
-		return model;
-	}
-	
-	bool CModel::Read(CSaveLoad& sload)
-	{
-		zar::CKey* modelkey = sload.m_zfile.GetOpenKey();
-		if (modelkey != NULL)
-		{
-			CNode::Read(sload);
-			SetName(modelkey->GetName());
-		}
-
 		return true;
 	}
 }

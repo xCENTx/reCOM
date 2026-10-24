@@ -1,4 +1,5 @@
 #include "zweapon.h"
+#include "zwep_projectilelist.h"
 #include "gamez/zNetwork/znet.h"
 
 void CZProjectile::Reset()
@@ -63,6 +64,32 @@ zdb::CNode* CZProjectile::GetInstance() const
 	return m_instance;
 }
 
+f32 CZProjectile::ResolveDamage(f32* health, f32* armor, f32 damage, f32 multiplier)
+{
+	f32 armorpct = damage - *armor * (multiplier / 10.0f);
+	f32 healthpct = damage - armorpct;
+
+	if (armorpct <= 0.0f)
+	{
+		armorpct = 0.0f;
+		healthpct = damage - 0.0f;
+	}
+
+	healthpct = *armor - healthpct / 4.0f;
+	*armor = healthpct;
+
+	if (healthpct <= 0.0f)
+		*armor = 0.0f;
+
+	healthpct = *health;
+	*health = healthpct - armorpct;
+
+	if (healthpct - armorpct <= 0.0f)
+		*health = 0.0f;
+
+	return *health;
+}
+
 bool CZProjectile::FireValidityCheck()
 {
 	// Created projectiles are validated by the server only.
@@ -82,18 +109,18 @@ void CZProjectile::PreFireProjectile()
 {
 	if (m_shottype == PROJECTILE_TYPE::ONE_FRAME)
 	{
-		CZWeapon::m_pProjectileList.GetNextDirectFireDI(&m_di, &m_di_handle);
+		// CZWeapon::m_pProjectileList.GetNextDirectFireDI(&m_di, &m_di_handle);
 		m_removeASAP = false;
 	}
 	else
 	{
-		CZWeapon::m_pProjectileList.GetNextIndirectFireDI(&m_di, &m_di_handle);
+		// CZWeapon::m_pProjectileList.GetNextIndirectFireDI(&m_di, &m_di_handle);
 		m_removeASAP = false;
 	}
 }
 
 bool CZProjectile::SetProjectile(zdb::CNode* owner, CZWeapon* weapon, CZAmmo* ammo,
-	const CPnt3D& startpos, CPnt3D& velscale, const CPnt3D& vel,
+	const CPnt3D& startpos, CPnt3D& velscale, CPnt3D& vel,
 	s32 id, zdb::CModel* model, f32 time, f32 removal_time)
 {
 	m_weapon = weapon;

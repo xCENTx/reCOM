@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZSYSTEM_H
+#define ZSYSTEM_H
 #include <list>
 #include <stdlib.h>
 #include <cstring>
@@ -45,14 +46,6 @@ class CSched_Manager;
 typedef unsigned long long long128;
 typedef bool(*ScheduledTask)(float, void*);
 
-void InitSystemTuners();
-void zSysInit();
-void zSysPostInit();
-void zSysMain();
-void zSysReset();
-void zSysFifoEnd();
-size_t zsys_FullAllocAndFree();
-
 void zVid_Assert(bool condition, unsigned int mask, const char* source, int line);
 
 void* operator new(size_t size);
@@ -81,6 +74,21 @@ union _word128
 	u16 u16[8];
 	u8 u8[16];
 };
+
+extern _word128* sprBeingWritten;
+extern _word128* sprBeingKicked;
+
+void InitSystemTuners();
+void zSysInit();
+void zSysPostInit();
+void zSysMain();
+void zSysReset();
+
+void zSysFifoKick(_word128* packet, u32 qwc);
+void zSysFifoEnd();
+
+size_t zsys_FullAllocAndFree();
+long128* zsys_AllocScratchpad();
 
 struct four
 {
@@ -123,7 +131,8 @@ public:
 	void* DmaToGif;
 	void* DmaFromSPR;
 
-	s64 sprPacketEnd[2];
+	long128* sprPacketBegin;
+	long128* sprPacketEnd[2];
 
 	s32 sprPx;
 
@@ -134,14 +143,26 @@ public:
 
 	u32 timerTicksPerSecond;
 	f32 timerScale;
+
 };
 
-class CSched_Manager : public std::list<ScheduledTask>
+class CSched_Task
+{
+	friend class CSched_Manager;
+private:
+	char* m_name;
+	bool m_removed;
+	f32 m_priority;
+	bool(*m_func)(float, void*);
+	void* m_registrar;
+};
+
+class CSched_Manager : public std::list<CSched_Task*>
 {
 public:
-	void AddTask(const char* name, bool(*task)(f32, void*), f32 delta, void* buf);
-	ScheduledTask GetTask(s32 index);
-	bool RemoveTask(void* buf, bool child);
+	void AddTask(const char* name, bool(*task)(f32, void*), f32 priority, void* registrar);
+	CSched_Task* GetTask(u32 index);
+	bool RemoveTask(CSched_Task* buf, bool child);
 	bool RemoveTask(const char* taskName, bool child);
 
 	void Clear();
@@ -151,7 +172,7 @@ public:
 private:
 	bool m_inTick;
 	f32 m_priority;
-	std::list<ScheduledTask> m_FreeList;
+	std::list<CSched_Task*> m_FreeList;
 };
 
 class CSaferStr : public std::basic_string<const char*>
@@ -173,30 +194,10 @@ public:
 	}
 };
 
-class CSaveManager
-{
-
-};
-
-class CSaveModule
-{
-public:
-	CSaveModule(const char* module, CSaveManager* mcSaveManager) {}
-public:
-};
-
 class CTTY
 {
 public:
-	enum class ZLOG_LEVEL
-	{
-		LVL_INFO,
-		LVL_WARN,
-		LVL_ERROR,
-		LVL_CRITICAL
-	};
-
-	void Print(char* string, ZLOG_LEVEL level = ZLOG_LEVEL::LVL_INFO);
+	void Print(char* string);
 	void Print(char* buffer, size_t size);
 	void Render();
 private:
@@ -208,3 +209,4 @@ class CConsole
 public:
 	void Tick(f32 dT);
 };
+#endif

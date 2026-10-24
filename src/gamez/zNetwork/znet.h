@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZNETWORK_H
+#define ZNETWORK_H
 #include <list>
 
 #include <rsa/rsadef.h>
@@ -224,6 +225,8 @@ class CZNetGame
 {
 public:
 	bool Initialize();
+
+	void MasterStartGame();
 	
 	CValve* m_pMaxRoundCountValve;
 	CValve* m_pHalfRoundCountValve;
@@ -343,3 +346,4 @@ private:
 	bool started;
 	CValve* onlineStatusValve;
 };
+#endif

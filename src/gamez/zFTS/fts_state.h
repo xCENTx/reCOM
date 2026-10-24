@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FTS_STATE_H
+#define FTS_STATE_H
 #include <deque>
 
 #include "gamez/zMath/zmath.h"
@@ -212,26 +213,6 @@ public:
 	void OnPush() {}
 };
 
-class CTestState : public CGameState
-{
-public:
-	CTestState();
-	
-	void PreInit() {}
-	bool Init();
-	void PreUnInit() {}
-	void UnInit() {}
-
-	void Tick(f32 dT);
-
-	void OnPop() {}
-	void OnPush() {}
-
-	void TestLoadReaders();
-private:
-	bool m_bTestLoadReaders;
-};
-
 class CGameStateChangeCmd
 {
 	friend class CGame;
@@ -245,3 +226,4 @@ private:
 };
 
 class CStateCmdQueue : public std::deque<CGameStateChangeCmd*> {};
+#endif

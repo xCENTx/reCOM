@@ -1,6 +1,24 @@
+#include <vector>
+#include <algorithm>
+
 #include "zchar.h"
 
 #include "gamez/zReader/zrdr.h"
+
+std::list<CCharacterType*> CCharacterType::m_char_list;
+std::list<CCharacterGear*> CCharacterType::m_gear_list;
+
+bool DeleteTemporaryCharType(CCharacterType* chartype)
+{
+    if (!chartype)
+        return false;
+
+    if (!chartype->m_istemporary)
+        return false;
+
+    delete chartype;
+    return true;
+}
 
 CCharacterType::CCharacterType()
 {
@@ -14,6 +32,11 @@ CCharacterType::CCharacterType()
     m_weapons.reserve(8);
 
     m_controller_id = 0;
+}
+
+CCharacterType::CCharacterType(const char* name, const CCharacterType* other)
+{
+
 }
 
 bool CCharacterType::Open(const char* path)
@@ -42,4 +65,36 @@ bool CCharacterType::Open(const char* path)
     }
 
     return true;
+}
+
+CCharacterType* CCharacterType::Create(const char* name, const CCharacterType* other, bool destroyCopy)
+{
+    CCharacterType* ctype = GetByNameMod(name);
+
+    if (!ctype)
+    {
+        ctype = new CCharacterType(name, other);
+        m_char_list.push_back(ctype);
+        return ctype;
+    }
+
+    return ctype;
+}
+
+CCharacterType* CCharacterType::GetByNameMod(const char* name)
+{
+    for (auto i = m_char_list.begin(); i != m_char_list.end(); i++)
+    {
+        CCharacterType* chartype = *i;
+
+        if (strcmp(chartype->m_name, name))
+            return chartype;
+    }
+
+    return NULL;
+}
+
+void CCharacterType::CleanupTemporary()
+{
+    CCharacterType::m_char_list.remove_if(DeleteTemporaryCharType);
 }

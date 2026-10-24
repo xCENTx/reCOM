@@ -2,12 +2,9 @@
 
 #include "zrdr.h"
 #include "zrdr_local.h"
-#include "Apps/FTS/gamever.h"
 
 #include "gamez/zSystem/zsys.h"
 #include "gamez/zUtil/util_stack.h"
-#include "SDL3/SDL_egl.h"
-#include "SDL3/SDL_log.h"
 
 std::list<char*> zrdr_symbols;
 
@@ -259,83 +256,59 @@ bool _eval_defined(char* token)
 {
 	s32 symidx = 0;
 	char symbolbuf[MAX_ZRDR_PATH_LEN + 1];
-
-	do
+	
+	while (fstack.size() > 2);
 	{
-		while (true)
+		while (!fstack.front()->fread(token, 1))
 		{
-			CBufferIO* file = fstack.front();
-
-			if (!file->fread(token, 1))
-			{
-				break;
-			}
-
-			if (isalpha(*token) != 0)
-			{
-				auto it = zrdr_symbols.begin();
-
-				while (it != zrdr_symbols.end())
-				{
-					if (strcmp(symbolbuf, *it) == 0)
-					{
-						break;
-					}
-				}
-
-				return *it != zrdr_symbols.front();
-			}
-
 			if (symidx > MAX_ZRDR_PATH_LEN)
-			{
 				return false;
+
+			if (isalpha(*token))
+			{
+				symbolbuf[symidx] = *token;
+				symbolbuf[symidx + 1] = '\0';
+				symidx++;
+
+				for (auto i = zrdr_symbols.begin(); i != zrdr_symbols.end(); ++i)
+					if (strcmp(symbolbuf, *i) == 0)
+						return *i != zrdr_symbols.front();
+					
 			}
-
-			symbolbuf[symidx] = *token;
-			symbolbuf[symidx + 1] = '\0';
-			symidx++;
-		}
-
-		if (fstack.size() < 2)
-		{
-			return false;
 		}
 
 		fstack.pop(true);
 	}
-	while (true);
+	
+
+	return true;
 }
 
 void _resolveA(_zrdr* self, _zrdr* root, char* name)
 {
 	if (self->type == ZRDR_STRING)
-	{
 		self->string = self->string - (s32)name;
-	}
-	else if (self->type == ZRDR_ARRAY)
+
+	if (self->type != ZRDR_ARRAY)
+		return;
+
+	for (u32 i = 1; self->array->integer; i++)
 	{
-		for (u32 i = 1; self->array->integer; i++)
+		_zrdr* node = &self->array[i];
+
+		if (node->type == ZRDR_STRING)
+			node->string = node->string - (s32)name;
+
+		if (node->type == ZRDR_ARRAY)
 		{
-			_zrdr* node = &self->array[i];
+			for (u32 j = 1; j < node->array->integer; j++)
+				_resolveA(&node->array[j], root, name);
 
-			if (node->type == ZRDR_STRING)
-			{
-				node->string = node->string - (s32)name;
-			}
-			else if (node->type == ZRDR_ARRAY)
-			{
-				for (u32 j = 1; j < node->array->integer; j++)
-				{
-					_zrdr* node_child = &node->array[j];
-					_resolveA(node_child, root, name);
-				}
-
-				node->string = self->string - (s32)name;
-			}
+			node->string = self->string - (s32)name;
 		}
-
-		self->string = self->string - (s32)name;
 	}
+
+	self->string = self->string - (s32)name;
 }
 
 void _resolveB(_zrdr* self, _zrdr* root, char* name)
@@ -345,26 +318,25 @@ void _resolveB(_zrdr* self, _zrdr* root, char* name)
 		// Assign string pointer to point at the entry in the string table
 		self->string += (s32)name;
 	}
-	else if (self->type == ZRDR_ARRAY)
+
+	if (self->type != ZRDR_ARRAY)
+		return;
+
+	self->string += (s32)root;
+
+	for (u32 i = 1; i < self->array->integer; i++)
 	{
-		self->string += (s32)root;
-                
-		for (u32 i = 1; i < self->array->integer; i++)
+		_zrdr* child = &self->array[i];
+
+		if (child->type == ZRDR_STRING)
+			child->string += (s32)name;
+
+		if (child->type == ZRDR_ARRAY)
 		{
-			_zrdr* child = &self->array[i];
-                		
-			if (child->type == ZRDR_STRING)
-			{
-				child->string += (s32)name;
-			}
-			else if (child->type == ZRDR_ARRAY)
-			{
-				child->string += (s32)root;
-				for (u32 j = 1; j < child->array->integer; j++)
-				{
-					_resolveB(&child->array[j], root, name);
-				}
-			}
+			child->string += (s32)root;
+
+			for (u32 j = 1; j < child->array->integer; j++)
+				_resolveB(&child->array[j], root, name);
 		}
 	}
 }
@@ -372,59 +344,53 @@ void _resolveB(_zrdr* self, _zrdr* root, char* name)
 CRdrFile* zrdr_read(const char* name, const char* path, s32 flags)
 {
 	if (path && strlen(path) < MAX_ZRDR_PATH_LEN)
-	{
 		strcpy(cur_zrdr_path, path);
-	}
 
 	cur_zrdr_flags = flags;
 
 	CRdrFile* rdrfile = CRdrArchive::FindRdr(name);
 
-	// Is the zrdr file non-compiled?
-	if (flags & 1U != 0 || !rdrfile)
+	// Is the reader file compiled?
+	if ((flags & ZRDR_FLAG_RAW) == 0 || rdrfile)
+		return rdrfile;
+
+	CBufferIO* io = new CBufferIO();
+
+	// Search for it in the game disc directory
+	if (!io->Open(zrdr_findfile(name, path)))
 	{
-		CBufferIO* io = new CBufferIO();
-
-		// Search for it in the game disc directory
-		if (!io->Open(zrdr_findfile(name, path)))
-		{
-			io->Close();
-		}
-		else
-		{
-			// Insert into file stack
-			fstack.insert(fstack.begin(), io);
-
-			rdrfile = new CRdrFile();
-
-			// Check for any syntax errors
-			if (rdrfile->ValidateFormat())
-			{
-				// Begin tokenization and create zrdr structure
-				_zrdr* array = rdrfile->ReadArray();
-				rdrfile->type = array->type;
-				rdrfile->array = array->array;
-				rdrfile->length = 1;
-
-				// Why is this here?
-				zfree(array);
-			}
-			// Syntax error check failed
-			else
-			{
-				SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Syntax error in zReader file %s!", name);
-				// delete array;
-				rdrfile = NULL;
-			}
-
-			if (!fstack.empty())
-			{
-				fstack.erase(fstack.begin(), fstack.end());
-			}
-
-			io->Close();
-		}
+		// Search wasn't successful.
+		io->Close();
+		return NULL;
 	}
+
+	fstack.insert(fstack.begin(), io);
+
+	rdrfile = new CRdrFile();
+
+	// Check for any syntax errors
+	if (rdrfile->ValidateFormat())
+	{
+		// Begin tokenization and create tag structure
+		_zrdr* array = rdrfile->ReadArray();
+		rdrfile->type = array->type;
+		rdrfile->array = array->array;
+		rdrfile->length = 1;
+
+		// Why is this here?
+		zfree(array);
+	}
+	// Syntax error check failed
+	else
+	{
+		// delete array;
+		rdrfile = NULL;
+	}
+
+	if (!fstack.empty())
+		fstack.erase(fstack.begin(), fstack.end());
+
+	io->Close();
 	
 	return rdrfile;
 }
@@ -461,55 +427,33 @@ _zrdr* CRdrFile::ReadArray()
 	_zrdr* parent = zrdr_alloc(sizeof(_zrdr), 1);
 	parent->type = ZRDR_ARRAY;
 	
-	if (GetGame() <= game_SOCOM1)
+	_zrdr* child = zrdr_alloc(sizeof(_zrdr), arrays.size() + 1);
+	child->type = ZRDR_INTEGER;
+
+	// Set parent node equal to child, and append the size of
+	// the child node to the first array element
+	parent->array = child;
+	parent->array->type = ZRDR_INTEGER;
+
+	parent->array->integer = arrays.size() + 1;
+
+	// When working with readers of version 2,
+	// The first index (0) is ALWAYS used to store the length.
+	// This means that zReader arrays start at index 1.
+	// In future zReader versions this was put into the
+	// "length" bitfield.
+	// When iterating through them, target the second index to access
+	// the arrays.
+	for (u32 i = 1; i < parent->array->integer; i++)
 	{
-		_zrdr* child = zrdr_alloc(sizeof(_zrdr), arrays.size() + 1);
-		child->type = ZRDR_INTEGER;
-        
-		// Set parent node equal to child, and append the size of
-		// the child node to the first array element
-		parent->array = child;
-		parent->array->type = ZRDR_INTEGER;
-        
-		parent->array->integer = arrays.size() + 1;
+		// The arrangement of each zReader node should go as follows:
+		// Length, name, array
+		array = arrays.front();
+		arrays.erase(arrays.begin());
 
-		// When working with readers of version 2,
-		// The first index (0) is ALWAYS used to store the length.
-		// This means that zReader arrays start at index 1.
-		// In future zReader versions this was put into the
-		// "length" bitfield.
-		// When iterating through them, target the second index to access
-		// the arrays.
-		for (u32 i = 1; i < parent->array->integer; i++)
-		{
-			// The arrangement of each zReader node should go as follows:
-			// Length, name, array
-			array = arrays.front();
-			arrays.erase(arrays.begin());
+		parent->array[i] = *array;
 
-			parent->array[i] = *array;
-		
-			zfree(array);
-		}
-	}
-	else if (GetGame() > game_SOCOM1)
-	{
-		_zrdr* child = zrdr_alloc(sizeof(_zrdr), arrays.size());
-        
-		// Set parent node equal to child, and append the size of
-		// the child node to the parents length
-		parent->array = child;
-		parent->length = arrays.size();
-		
-		for (u32 i = 0; i < parent->length; i++)
-		{
-			array = arrays.front();
-			arrays.erase(arrays.begin());
-
-			parent->array[i] = *array;
-		
-			zfree(array);
-		}
+		zfree(array);
 	}
 	
 	return parent;

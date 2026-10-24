@@ -1,8 +1,12 @@
-#pragma once
+#ifndef ZVISUAL_H
+#define ZVISUAL_H
 #include <deque>
+
+#include "vis_vector.h"
 
 #include "gamez/zArchive/zar.h"
 #include "gamez/zMath/zmath.h"
+#include "gamez/zTexture/ztex.h"
 
 class CShader;
 class CTextureRelocMgr;
@@ -18,7 +22,8 @@ namespace zdb
 	
 	class CNode;
 	class CModel;
-
+	
+	class CVisData;
 	class CVisBase;
 	class CVisual;
 	class CMesh;
@@ -36,6 +41,7 @@ void hookupVisuals(zar::CZAR* archive, zdb::CModel* model);
 void hookupVisuals(zar::CZAR* archive, zar::CKey* key, zdb::CNode* node, zdb::CModel* model, zdb::CVisBase* vis);
 
 extern s32 node_index;
+extern zdb::CVisData* _vdataTex;
 
 // Header for OpenFlight models.
 struct tag_ObjectHeader
@@ -58,11 +64,20 @@ namespace zdb
 		ZVIS_FOV_NUM
 	};
 
-	struct vertex
+	enum class tag_VIS_PKTTYPE
 	{
-		CPnt3D pos;
-		CPnt3D col;
-		CPnt3D tcoords;
+		PKT_00,
+		PKT_01,
+		PKT_VERTEX_DATA,
+		PKT_TEX_OFS,
+		PKT_04,
+		PKT_TEX_FIXUP,
+		PKT_TEX_RESOLVE
+	};
+
+	struct tag_VIS_PACKET
+	{
+		
 	};
 
 	struct tag_VIS_PARAMS
@@ -71,7 +86,10 @@ namespace zdb
 		// Figure out the rest of the struct
 		u32 m_parent_has_visuals : 1;
 		u32 m_field1 : 1;
-		u32 m_unused : 30;
+		u32 m_doFog : 1;
+		u32 m_bilinear : 1;
+		u32 m_ui : 1;
+		u32 m_unused : 27;
 		CPnt4D m_field2;
 	};
 
@@ -87,9 +105,10 @@ namespace zdb
 		
 		static u32 m_instance_count;
 
-		void* m_data_buffer;
+		_word128* m_data_buffer;
 		s32 m_buffer_count;
 		size_t m_data_size;
+		u32 m_node_ofs;
 		bool m_active;
 	};
 
@@ -104,9 +123,14 @@ namespace zdb
 		void SearchVertex();
 		void SelectVertex(CVisual* vis, u32 vertex);
 
+		void SetBilinear(_word128* qwc, bool bilinear);
+
 		u32 m_vertex_start;
 		u32 m_vertex_count;
 		u8* m_cur_vertex;
+
+		_word128* m_data;
+		_word128* m_nextGif;
 	};
 	
 	/// <summary>
@@ -115,6 +139,8 @@ namespace zdb
 	class CVisual : public tag_VIS_PARAMS
 	{
 	public:
+		CVisual();
+
 		enum LOD
 		{
 			LOW,
@@ -127,6 +153,7 @@ namespace zdb
 		static s32 ApplyDecal(u32 vertex, f32 opacity, CPnt3D* position, CMatrix* mat, CTexHandle* handle);
 		static CVisual* Create(zar::CZAR& archive);
 		static void LandmarkEnable(bool enableLandmarks);
+		static void NodeSetup(CNode* node, CNode* other, CMatrix* matrix, s32 status);
 		
 		void Init();
 
@@ -135,20 +162,28 @@ namespace zdb
 		void ApplyDecal(CDecal* decal);
 
 		void SetBuffer(_word128* wvis, u32 size, CVisBase* visdata);
+		bool GetChainData();
+
 		
 		bool DrawLOD(CLOD_band* lod, f32 range, f32* distance);
-		void Render();
-		void VuUpdate(f32 opacity);
+		void Render(CMatrix* transform);
+		void VuUpdate(CMatrix* transform, f32 opacity);
 
-		CTexture* ResolveTextureName(_word128* wtexture, _word128* wname);
+		void SetupShaders();
+
+		CTexture* ResolveTextureName(_word128* packet, s32 offset);
+		CTexture* ResolveTextureName(_word128* packet, _word128* offset);
 		
 		u32 Release();
 
-		static std::deque<CVisual*> m_stack_vid;
+		static std::deque<u32> m_stack_vid;
 
 		static std::vector<CPnt3D*> m_lightMapList;
 		static std::vector<CPnt3D*> m_shadowMapList;
 		static std::vector<CPnt3D*> m_projectedMapList;
+
+		static _word128* m_dmaChain; // Pointer to packet list containing texture/vertex data
+		static u32 m_dmaQwc; // Amount of quadwords/packets in the chain
 
 		static void* localLightBuf;
 		static CLight* localLightPtr;
@@ -161,8 +196,12 @@ namespace zdb
 		static bool m_applyLocalLights;
 		static bool m_applyMultipass;
 		static bool m_applyShadow;
+		static bool m_renderMap;
 		static bool m_fogEnable;
 		static bool m_lightingEnable;
+		static bool m_landmarkFlag;
+
+		static f32 m_GlobalLightScale;
 
 		static CMatrix m_modelToWorld;
 		static CMatrix m_WorldToModel;
@@ -170,35 +209,50 @@ namespace zdb
 		static CCamera* m_camera;
 		static s32 custom;
 
-		static f32 m_opacity;
+		static s32 m_fovStatus;
 
+		static f32 m_opacity;
+		static f32 m_rangeSqdToCamera;
 		static f32 m_adjustBilinearRange;
 
+		bool m_lodIndex;
 		bool m_has_lods;
+
+		CPnt3D m_centroid;
 		
+		std::vector<CVisual*> m_vis_child;
+
 		u32 m_refcount;
-		void* m_detail_buff;
+		CVisual* m_detail_buff;
 		u32 m_detail_cnt;
 		size_t m_detail_size;
 
 		u32 m_instance_cnt;
 
-		_word128* m_dmaBuf;
+		_word128* m_chainPtr;
+		_word128* m_gifSelect;
 		
+		CDynTexList m_dyntexList;
+
 		std::vector<CDecal*> m_decals;
 		s32 m_decal_idx;
 
 		s32 m_renderState;
 
+		f32 m_range_sqd_to_camera;
+
 		CShader* m_shader;
 
-		u32 m_vbo;
-		u32 m_vao;
+		f32 m_r;
+		f32 m_g;
+		f32 m_b;
 	};
 
 	class CMesh : public CVisual
 	{
 	public:
+		CMesh();
+
 		void SetMeshTextureSelects(_word128* wtexture, _word128* wname);
 		
 		u32 m_mtx_count;
@@ -206,12 +260,26 @@ namespace zdb
 
 	class CSubMesh : public CMesh
 	{
-
+	public:
+		CSubMesh();
+		CSubMesh(CMesh* mesh);
+	
+		bool field4_0x4;
+		u32 field14_0x1c;
+		u32 m_matrix_id;
+		CMesh* m_mesh;
 	};
 
 	class CDecal : public CVisual
 	{
+	public:
+		static CDecalPool m_tempPool;
+	};
 
+	class CMeshDecal : public CDecal
+	{
+	public:
+		static CMeshDecalPool m_tempPool;
 	};
 
 	class C2DVisual : public CVisual
@@ -220,10 +288,5 @@ namespace zdb
 		C2D* m_node2d;
 		CTextureRelocMgr* m_reloc;
 	};
-
-	class CVisualVector : public std::vector<CVisual*>
-	{
-	public:
-		bool Exists(const CVisual* visual);
-	};
 }
+#endif

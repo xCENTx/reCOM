@@ -1,9 +1,13 @@
-#pragma once
+#ifndef ZINPUT_H
+#define ZINPUT_H
 #include "gamez/zSystem/zsys.h"
+
+#include <map>
 
 class CInput;
 class CPad;
 class CKeyboard;
+class CMouse;
 
 extern float pad_dt;
 
@@ -142,9 +146,4 @@ public:
 
 	CStickType m_stickType[2];
 };
-
-class CKeyboard
-{
-public:
-	void Tick(f32 delta);
-};
+#endif

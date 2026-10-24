@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZANIM_H
+#define ZANIM_H
 #include <string>
 
 #include "gamez/zNode/znode.h"
@@ -7,12 +8,91 @@
 #include "gamez/zValve/zvalve.h"
 #include "gamez/zSound/zsnd.h"
 
+/// ---------------------
+/// General purpose zAnim datatypes
+/// ---------------------
+
+#define DATATYPE_QUAD_ALIGN              0x01
+#define DATATYPE_IF                      0x02
+#define DATATYPE_GO_TO_ENDIF             0x04
+#define DATATYPE_END_IF                  0x05
+#define DATATYPE_NODE_ACTIVE             0x06
+#define DATATYPE_RANGE_TEST              0x08
+#define DATATYPE_RANDOM_WEIGHT           0x09
+#define DATATYPE_FAIL                    0x0A
+#define DATATYPE_LOOP                    0x0D
+#define DATATYPE_WAIT                    0x0E
+#define DATATYPE_OBJECT_ACTIVE_STATE     0x10
+#define DATATYPE_OBJECT_TRANSLATE_STATE  0x11
+#define DATATYPE_OBJECT_ROTATE_STATE     0x12
+#define DATATYPE_OBJECT_MOTION           0x13
+#define DATATYPE_OBJECT_MOTION_FROM_TO   0x14
+#define DATATYPE_OBJECT_OPACITY_FROM_TO  0x15
+#define DATATYPE_PARTICLE_SOURCE         0x17
+#define DATATYPE_CAMERA                  0x18
+#define DATATYPE_DESTRUCTION_SOURCE      0x19
+#define DATATYPE_SOUND                   0x1A
+#define DATATYPE_LIGHT                   0x1B
+#define DATATYPE_WHILE                   0x1C
+#define DATATYPE_END_WHILE               0x1D
+#define DATATYPE_CALL_ANIMATION          0x20
+#define DATATYPE_STOP_ANIMATION          0x21
+#define DATATYPE_PAUSE_ANIMATION         0x22
+#define DATATYPE_RESUME_ANIMATION        0x23
+#define DATATYPE_INVALIDATE_ANIMATION    0x24
+#define DATATYPE_CALL_SEQUENCE           0x25
+#define DATATYPE_STOP_SEQUENCE           0x26
+#define DATATYPE_MESSAGE                 0x2A
+#define DATATYPE_VALVE                   0x2D
+#define DATATYPE_CAM_CONTROL_SWITCH      0x2E
+#define DATATYPE_CAM_INDOORS_TEST        0x30
+#define DATATYPE_CAM_SET_REGIONS         0x31
+#define DATATYPE_CAM_SET_PARAMS          0x33
+#define DATATYPE_CAM_3RD_PERSON          0x34
+#define DATATYPE_IS_PLAYER_NODE          0x37
+
+/// ---------------------
+/// AI zAnim datatypes
+/// ---------------------
+
+#define DATATYPE_AI_COMM                 0x02
+#define DATATYPE_AI_DEBUG                0x03
+#define DATATYPE_AI_EVENT                0x05
+#define DATATYPE_AI_FIREMODE             0x06
+#define DATATYPE_AI_GOTO                 0x08
+#define DATATYPE_AI_HOLD                 0x09
+#define DATATYPE_AI_INSTATE              0x0A
+#define DATATYPE_AI_INVIEW               0x0B
+#define DATATYPE_AI_LOOKAT               0x0C
+#define DATATYPE_AI_MACRO                0x0D
+#define DATATYPE_AI_MOVE                 0x0F
+#define DATATYPE_AI_PARAM                0x11
+#define DATATYPE_AI_PURSUE               0x12
+#define DATATYPE_AI_ANIMATE              0x13
+#define DATATYPE_AI_INRANGE              0x14
+#define DATATYPE_AI_INREGION             0x15
+#define DATATYPE_AI_SETMODE              0x17
+#define DATATYPE_AI_SETANIMSET           0x18
+#define DATATYPE_AI_SIGNAL               0x19
+#define DATATYPE_AI_SOUND                0x1A
+#define DATATYPE_AI_STANCE               0x1B
+#define DATATYPE_AI_STATE                0x1C
+#define DATATYPE_AI_STOPALL              0x1D
+
+/// ---------------------
+/// UI zAnim datatypes
+/// ---------------------
+
+#define DATATYPE_UI_MENU                 0x1
+
+
 class CZAnim;
 class CZAnimEx;
 class CZAnimMain;
 class CZAnimHealth;
 class CBlendable;
 class CAnimsByFP;
+class CZAnimSetSave;
 
 class CSched_Manager;
 
@@ -29,6 +109,13 @@ namespace zdb
 }
 
 extern CZAnimMain ZAnim;
+
+extern u32* seq_offset_stack;
+extern u32 seq_offset_stack_size;
+
+extern char* _local_wildcard_str;
+extern char* _input_str_ptr;
+extern u32 _digit_count;
 
 static bool CmdAddNode(zdb::CNode node);
 static bool CmdRemoveNode(zdb::CNode node);
@@ -402,6 +489,8 @@ struct ZAnimNetworkPacket
 
 struct AnimSet
 {
+	void AddBlendable();
+
 	ANIMSET_PARAMS m_aparams;
 
 	bool m_ready;
@@ -457,18 +546,59 @@ public:
 	// CZAnimArgList* m_arg_list;
 	// CZAnimNameIndexTable m_nameindex_table;
 
+	/// <summary>
+	/// Extension class for debugging animations.
+	/// </summary>
 	CZAnimEx* m_animEx;
+
+	/// <summary>
+	/// The health of the animation.
+	/// If the object "dies", then zAnim script logic can run.
+	/// </summary>
 	CZAnimHealth* m_health;
 
+	/// <summary>
+	/// If the animation is broken or faulty.
+	/// </summary>
 	u32 m_invalid : 1;
+
+	/// <summary>
+	/// Set if engine code created this animation.
+	/// </summary>
 	u32 m_added_to_world_internally : 1;
+
 	u32 m_debug : 1;
+
 	u32 m_animset_index : 8;
+
+	/// <summary>
+	/// Counts how many nodes this animation references.
+	/// </summary>
 	u32 m_node_ref_count : 8;
+
+	/// <summary>
+	/// Counts how many textures this animation references.
+	/// </summary>
 	u32 m_tex_ref_count : 8;
+
+	/// <summary>
+	/// Counts how many particles this animation is using.
+	/// </summary>
 	u32 m_particle_count : 8;
+
+	/// <summary>
+	/// Counts how many sounds this animation is using.
+	/// </summary>
 	u32 m_sound_ref_count : 8;
+
+	/// <summary>
+	/// Counts how many values this animation is using.
+	/// </summary>
 	u32 m_valve_ref_count : 8;
+	
+	/// <summary>
+	/// Counts how many animation calls this animation is using.
+	/// </summary>
 	u32 m_call_anim_ref_count : 8;
 
 	zdb::CNode* m_instance_node;
@@ -481,6 +611,10 @@ public:
 	_zanim_call_anim_ref* m_call_anim_ref_list;
 	_zanim_cmd_hdr** m_user_cmd;
 
+	/// <summary>
+	/// Pointer to raw zSequence data.
+	/// Can be converted into multiple types of sequences based on datatype.
+	/// </summary>
 	char* m_seq_data;
 	s32 m_seq_data_size;
 
@@ -514,12 +648,18 @@ class CZAnimZAR : public zar::CZAR {};
 class CZAnimNameTable
 {
 public:
-
+	char** m_name;
+	u32 m_count;
 };
 
 class CZAnimSet
 {
 public:
+
+	bool Start();
+	void Init();
+
+	void Name(const char* name);
 	void GetName();
 
 	bool m_WasStarted;
@@ -537,8 +677,15 @@ public:
 	s32 m_anim_count;
 	s32 m_anim_max;
 	CZAnim* m_anim_list;
-	// CZAnimSetSave* m_node_states;
+	CZAnimSetSave* m_node_states;
 	CSched_Manager* m_task_scheduler;
+};
+
+class CZAnimSetSave : public std::vector<CZAnimSet*>
+{
+public:
+	std::vector<CQuat> m_rotationList;
+	std::vector<CZAnimSet*> m_parentList;
 };
 
 class CZAnimNameIndexTable
@@ -552,18 +699,28 @@ class CZAnimMain : public _zanim_main_params
 public:
 	char* SplitName(char* name, char** splitname);
 
-	void Open() {}
+	void Open();
+	bool Close();
+	bool Unload();
 	bool InitCommands();
 
 	void CmdNext();
 	void CmdNext(s32 program_counter);
 	void CmdSet(s32 program_counter);
+
+	bool CmdValid() const;
 	
 	_zanim_cmd_hdr* AddCmd(const char* name, _zanim_cmd_hdr*(*parser)(_zrdr*), void(*begin)(_zanim_cmd_hdr*), bool(*tick)(_zanim_cmd_hdr*, f32*), void(*end)(_zanim_cmd_hdr*));
 	_zanim_cmd_hdr* AnimParseExpression(_zanim_cmd_hdr* header, _zrdr* reader);
 
+	bool NewAnimSet(u32 index);
+
+	u32 GetCmd(u32 index, char* name, bool alloc);
 	_zanim_cmd_set* GetCmdEntry(char* name, bool param_2);
 	_zanim_cmd_set* GetCmdSet(char* name, bool param_2);
+
+	u32 GetAnimSetIndex(const char* animName, bool searchList);
+	CZAnimSet* GetAnimSet(u32 i);
 	
 	static bool m_LoadFromZAR;
 
@@ -591,7 +748,7 @@ public:
 
 	u8 m_Lod;
 	void(*m_network_activation_callback)();
-	void(*m_block_activation_callback)();
+	bool m_block_activation_callback;
 
 	_zanim_cmd_hdr m_cmd_if;
 	_zanim_cmd_hdr m_cmd_elseif;
@@ -603,7 +760,7 @@ public:
 	f32 m_exp[41];
 	f32 m_inv_exp[41];
 
-	ZAnimNetworkPacket m_NetworkPacket;
+	ZAnimNetworkPacket* m_NetworkPacket;
 	s32 m_NetworkPacketMaxSize;
 
 	s32 m_RunningAnimCount;
@@ -815,3 +972,4 @@ bool zAnimUIAppMenuTick(_zanim_cmd_hdr*, f32*);
 bool zAnimUIMenuTick(_zanim_cmd_hdr*, f32*);
 bool zAnimWaitTick(_zanim_cmd_hdr*, f32*);
 bool zAnimWhileTick(_zanim_cmd_hdr*, f32*);
+#endif

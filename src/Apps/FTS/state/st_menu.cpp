@@ -1,0 +1,105 @@
+#include "gamez/zNode/node_assetlib.h"
+
+#include "gamez/zCamera/zcam.h"
+#include "gamez/zGame/zgame.h"
+#include "gamez/zInput/zinput.h"
+#include "gamez/zNode/node_world.h"
+#include "gamez/zRender/zrender.h"
+#include "gamez/zSystem/zsys.h"
+#include "gamez/zVideo/zvid.h"
+
+extern zdb::CTextureRelocMgr* g_relocDblBuf = NULL;
+extern CZAnimZAR* animfile = NULL;
+
+bool LoadWorld(const char* name);
+
+CMenuState::CMenuState()
+{
+	m_name = zstrdup("MenuState");
+	m_skip = 0;
+	m_skip_swap = 0;
+
+	TtySoundString = CSaferStr();
+	BackSoundString = CSaferStr();
+
+	SelectionSound = NULL;
+
+	strncpy(m_DefaultMenu, "dlgIntroScreen.rdr", 64);
+
+	TtySoundString.reserve(64);
+	BackSoundString.reserve(64);
+}
+
+bool CMenuState::Init()
+{
+	CInput::Flush();
+
+	if (m_skip)
+		return true;
+
+	zar::CZAR* archive = CRdrArchive::AddArchive("readerc.zar", "run/ui");
+
+	if (archive)
+		archive->ReOpen(CRdrArchive::version, 1);
+
+	// zdb::CTexManager::m_texmanager->doSetupBuffers();
+
+	LoadWorld("ui");
+
+	if (zdb::CWorld::m_world)
+	{
+		zdb::CCamera* camera = zdb::CWorld::m_world->m_camera;
+
+		camera->SetPosition(320.0f, 0.0f, 320.0f);
+		camera->Update(zdb::tag_ZCAM_TYPE::ZCAM_NORMAL);
+		zdb::CVisual::m_camera = camera;
+		thePipe.m_camera = camera;
+	}
+
+	zdb::CAssetMgr::GetLoadedLibRef("common/assetlib/font");
+
+	m_menu = new CGameMenu();
+
+	if (CRdrFile* uisounds = zrdr_read("uisounds.rdr", "data/common/dialog"))
+	{
+		if (_zrdr* sounds = zrdr_findtag(uisounds, "SOUNDS"))
+		{
+			char* teletype = zrdr_findstring(sounds, "TELETYPE");
+
+			if (!teletype)
+				TtySoundString = NULL;
+			else
+				TtySoundString = teletype;
+
+			char* back = zrdr_findstring(sounds, "BACK");
+
+			if (!back)
+				BackSoundString = NULL;
+			else
+				BackSoundString = back;
+		}
+
+		zrdr_free(uisounds);
+	}
+
+	CSnd::Close();
+	//CSnd::LoadSounds("sounds.rdr", "HUDUI");
+	//CSnd::LoadSounds("sounds.rdr", "SMUS");
+	CSnd::UIOpen();
+
+	m_menu->Init(g_relocDblBuf, animfile);
+
+	return true;
+}
+
+void CMenuState::Tick(f32 dT)
+{
+	m_menu->Tick(dT);
+	
+	// The world has to exist in order for nodes to be rendered
+	if (zdb::CWorld::m_world != NULL && zdb::CWorld::m_world->m_camera)
+		zdb::CWorld::m_world->m_camera->Update(zdb::tag_ZCAM_TYPE::ZCAM_NORMAL);
+
+	zVid_ClearColor(0.0f, 0.0f, 0.0f);
+	zVid_Swap(false);
+}

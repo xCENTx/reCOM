@@ -24,4 +24,22 @@ namespace zdb
             }
         }
     }
+
+    CMesh::CMesh()
+    {
+
+    }
+
+    CSubMesh::CSubMesh()
+    {
+
+    }
+
+    CSubMesh::CSubMesh(CMesh* mesh)
+    {
+        field4_0x4 = true;
+        field14_0x1c = 3;
+        m_matrix_id = 0xabcd;
+        m_mesh = mesh;
+    }
 }

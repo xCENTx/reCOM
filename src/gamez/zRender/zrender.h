@@ -1,15 +1,11 @@
-#pragma once
+#ifndef ZRENDER_H
+#define ZRENDER_H
 #include <string>
-
-// TODO:
-// - Connect with rendering APIs like OpenGL, DirectX, and Vulkan
-// - Figure what the whole point of the Z renderer is
-// - Experiment with deferred rendering
-// - Implement mesh abstractions defined in the game renderer
 
 #include "gamez/zArchive/zar.h"
 #include "gamez/zMath/zmath.h"
 #include "gamez/zTexture/ztex.h"
+#include "gamez/zVisual/zvis.h"
 
 class CPipe;
 
@@ -62,6 +58,7 @@ void zRndrInit();
 extern CPipe thePipe;
 extern u32 numCharactersRendered;
 extern f32 bilinearDistance;
+extern bool FirstVisDrawn;
 
 struct LOD
 {
@@ -82,11 +79,20 @@ struct BLENDMODE
 class CStack
 {
 public:
-	static void Multiply(const CMatrix* matrix, bool other);
+	static CMatrix* Multiply(CMatrix* matrix, bool other);
 	
+	// TODO:
+	// This class is dangerous, specifically because it's targeting memory in static cache.
+	// There is the potential for memory in that region to be overwritten, IF you forget -
+	// to not decrease the matrix stack's pointer when you're in a loop.
+	// SOLUTION: Do bounds checking inside of the arithmetic operator overloads.
+
+	static CMatrix m_stack[64];
 	static CMatrix* m_top;
 	static CMatrix* m_pointer;
 };
+
+extern CStack stack;
 
 class LODVec : public std::vector<LOD*> {};
 
@@ -96,6 +102,8 @@ class LODVec : public std::vector<LOD*> {};
 class CAlpha
 {
 	friend class CPipe;
+public:
+	void Add(zdb::CNode* parent, zdb::CNode* child, zdb::CVisual* visual, zdb::tag_ZVIS_FOV fov, f32 alpha);
 private:
 	zdb::CCamera* m_camera;
 	void* m_visualList;
@@ -114,9 +122,12 @@ public:
 
 	static void Init();
 
-	void RenderNode(zdb::CNode* node, zdb::tag_ZVIS_FOV* fovTag);
-	void RenderUINode(zdb::CNode* node);
-	void RenderUINodeRecursive(zdb::CNode* node);
+	void RenderAtom(zdb::CNode* atomNode);
+	void RenderNode(zdb::CNode* node, zdb::tag_ZVIS_FOV fov);
+	void RenderUiNode(zdb::CNode* node);
+	void RenderUiNodeRecursive(zdb::CNode* node);
+	bool RenderVisual(zdb::CNode* node, zdb::tag_ZVIS_FOV fov);
+	void RenderMesh(zdb::CNode* node, zdb::CMesh* mesh, CMatrix* mvp, zdb::tag_ZVIS_FOV fov) {}
 	u32 RenderWorld(zdb::CWorld* world);
 	void Flush();
 
@@ -267,3 +278,4 @@ class CScrollingTexture_Object : public std::vector<CScrollingTexture_band*>
 private:
 	s32 m_bandMax;
 };
+#endif

@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿#ifndef ZCHARACTER_H
+#define ZCHARACTER_H
 #include "gamez/zCamera/zcam.h"
 #include "gamez/zMath/zmath.h"
 #include "gamez/zReader/zrdr.h"
@@ -58,7 +59,7 @@ struct HEALTH_PARAMS
 
 class CCharacterGear
 {
-private:
+public:
 	s32 m_ref_count;
 	s32 m_partid;
 	u32 m_gearid;
@@ -98,9 +99,17 @@ public:
 	};
 	
 	CCharacterType();
+	CCharacterType(const char*, const CCharacterType*);
+
+	static std::list<CCharacterType*> m_char_list;
+	static std::list<CCharacterGear*> m_gear_list;
 
 	static bool Open(const char* path);
-private:
+	static void CleanupTemporary();
+
+	static CCharacterType* Create(const char*, const CCharacterType*, bool);
+	static CCharacterType* GetByNameMod(const char*);
+
 	char* m_name;
 
 	s32 m_ref_count;
@@ -238,3 +247,4 @@ public:
 	bool m_loaded = false;
 	std::vector<CCameraParams> m_cam_params;
 };
+#endif

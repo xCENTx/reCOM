@@ -1,6 +1,12 @@
 #include "zui.h"
 
 #include "gamez/zUtil/util_stable.h"
+#include "posix/strcasecmp.h"
+
+CGameDlgDesign::CGameDlgDesign()
+{
+    m_useMpeg = false;
+}
 
 CDlgObjSpec* GetObjectSpec(_zrdr* reader, char* name)
 {
@@ -150,11 +156,11 @@ void CGameDlgDesign::LoadFromRdr(_zrdr* reader)
         
         if (type)
         {
-            if (!SDL_strcasecmp(type, "IMAGE"))
+            if (!strcasecmp(type, "IMAGE"))
             {
                 m_useMpeg = false;
             }
-            else if (!SDL_strcasecmp(type, "MPEG"))
+            else if (!strcasecmp(type, "MPEG"))
             {
                 m_useMpeg = true;
             }
